@@ -1,0 +1,11 @@
+# Ignore the original KIS API repository
+/open-trading-api/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore user-specific files
+.vscode/
