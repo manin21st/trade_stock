@@ -59,7 +59,8 @@ C:\DigitalTwin\trade_stock
 ├── core_logic.py           # 핵심 비즈니스 로직 (API 호출, 데이터 처리)
 ├── column_mappings.py      # 컬럼명 한글 매핑 정보
 ├── open-trading-api/       # 한국투자증권 API 라이브러리 (Git 버전관리에서 제외됨)
-├── test_balance.py         # 잔고 조회 기능 테스트용 스크립트
+├── test/                   # 각종 기능 테스트용 스크립트 폴더
+│   └── test_balance.py     # 잔고 조회 기능 테스트용 스크립트
 └── GEMINI.md               # 본 프로젝트 지침서
 ```
 
