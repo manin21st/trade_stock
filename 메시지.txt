@@ -1,11 +1,3 @@
-2025-10-27 15:02:31,763 - INFO - Authentication successful.
-2025-10-27 15:02:34,815 - INFO - Fetching account balance...
-2025-10-27 15:02:34,870 - INFO - --- 보유 주식 (df1) Raw Data ---
-2025-10-27 15:02:34,871 - INFO - Empty DataFrame
-Columns: []
-Index: []
-2025-10-27 15:02:34,872 - INFO - --- 계좌 평가 (df2) Raw Data ---
-2025-10-27 15:02:34,872 - INFO - Empty DataFrame
-Columns: []
-Index: []
-2025-10-27 15:02:34,873 - INFO - Account balance fetched. Displaying in '보유 주식' and '계좌 평가' tabs.
+git add .
+git commit -m "docs: Update GEMINI.md for submodule; feat: Add open-trading-api as submodule"
+git push
