@@ -1,20 +1,7 @@
---- kis_auth.py 파일 수정 방법 ---
-
-1. 'open-trading-api/examples_user/kis_auth.py' 파일을 텍스트 편집기로 엽니다.
-
-2. 파일 내용에서 아래와 비슷한 형태의 기존 코드 한 줄을 찾습니다.
-
-   path = os.path.join(os.path.expanduser('~'), 'KIS', 'config', 'kis_devlp.yaml')
-
-3. 찾은 한 줄을 아래의 새 코드 4줄로 완전히 교체해 주세요.
-
-   # 현재 파일의 위치를 기준으로 프로젝트 루트 경로를 계산
-   root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-   # 루트 경로와 파일명을 조합하여 전체 경로 생성
-   path = os.path.join(root_path, 'kis_devlp.yaml')
-
-4. 'kis_devlp.yaml' 파일 이동:
-   마지막으로, 'C:\Users\<사용자이름>\KIS\config' 폴더에 있던 'kis_devlp.yaml' 파일을
-   현재 프로젝트의 가장 상위 폴더인 'C:\DigitalTwin\trade_stock'으로 복사하거나 이동해 주세요.
-
----
+# GUI 화면 개선
+1. Strategy Configuration 과 Log Viewer 를 서로 다른 탭으로 분리하고 명칭은 Configuration 과 Log Viewer 로 지정
+2. Configuration 탭의 "Simple Buy/Sell Conditions" 부분을 "General Settings" 섹션에 통합
+3. Configuration 탭의 매수/매도 조건 섹션에서 "(기술적 분석)" 이란 용어는 삭제하고 기술지표는 당장은 필요없으니 지울 것
+4. Configuration 탭의 배치는 "General Settings", "매수 조건", "매도 조건" 순으로 3열 동일 폭 배치
+5. Configuration 탭의 "Save Configuration" 버튼은 우측 상단에 파란색으로 폭은 과하지 않게 표시
+6. Log Viewer 탭의 필터 콤보박스는 "사이클 ID 필터:" 우측에 붙여서 표시하고 "로그 새로고침" 버튼은 파란색 적절한 폭으로 우측 배치

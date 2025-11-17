@@ -24,13 +24,13 @@ def suppress_external_logging():
     logging.getLogger('kis_auth').setLevel(logging.CRITICAL)
     logging.getLogger('domestic_stock_functions').setLevel(logging.CRITICAL)
 
-# --- State ---
 _is_authenticated = False
+_current_env_dv = None
 
 def authenticate(cycle_id=None):
     """Authenticates with the KIS API based on the mode in config.json."""
     suppress_external_logging()
-    global _is_authenticated
+    global _is_authenticated, _current_env_dv
     if _is_authenticated:
         logging.info("Already authenticated.", extra={'cycle_id': cycle_id})
         return True
@@ -41,8 +41,9 @@ def authenticate(cycle_id=None):
         
         trading_mode = config.get('trading_mode', 'real') # Default to 'real'
         svr_mode = "vps" if trading_mode == "paper" else "prod"
+        _current_env_dv = "demo" if trading_mode == "paper" else "real"
         
-        logging.info("Authenticating in '%s' mode (svr=%s)...", trading_mode, svr_mode, extra={'cycle_id': cycle_id})
+        logging.info("Authenticating in '%s' mode (svr=%s, env_dv=%s)...", trading_mode, svr_mode, _current_env_dv, extra={'cycle_id': cycle_id})
         
         ka.auth(svr=svr_mode) # Set environment based on config
         
@@ -53,17 +54,18 @@ def authenticate(cycle_id=None):
         logging.error("Authentication failed: %s", e, extra={'cycle_id': cycle_id})
         _is_authenticated = False
         return False
-
+    
 def get_price(cycle_id, stock_code: str):
     """Fetches the current price and stock info for a given stock code."""
-    if not _is_authenticated:
-        logging.error("Authentication required before fetching price.", extra={'cycle_id': cycle_id})
+    global _current_env_dv
+    if not _is_authenticated or _current_env_dv is None:
+        logging.error("Authentication required and env_dv must be set before fetching price.", extra={'cycle_id': cycle_id})
         return None
 
     try:
-        logging.info("Fetching price for %s...", stock_code, extra={'cycle_id': cycle_id})
+        logging.info("Fetching price for %s (env_dv=%s)...", stock_code, _current_env_dv, extra={'cycle_id': cycle_id})
         thread_local.cycle_id = cycle_id # Set cycle_id for external logs
-        df_price = inquire_price(env_dv="real", fid_cond_mrkt_div_code="J", fid_input_iscd=stock_code)
+        df_price = inquire_price(env_dv=_current_env_dv, fid_cond_mrkt_div_code="J", fid_input_iscd=stock_code)
         thread_local.cycle_id = None # Clear after call
         
         logging.info("Fetching stock info for %s...", stock_code, extra={'cycle_id': cycle_id})
@@ -87,16 +89,17 @@ def get_price(cycle_id, stock_code: str):
 
 def get_balance(cycle_id):
     """Fetches the account balance, returning two DataFrames."""
-    if not _is_authenticated:
-        logging.error("Authentication required before fetching balance.", extra={'cycle_id': cycle_id})
+    global _current_env_dv
+    if not _is_authenticated or _current_env_dv is None:
+        logging.error("Authentication required and env_dv must be set before fetching balance.", extra={'cycle_id': cycle_id})
         return None, None
 
     try:
-        logging.info("Fetching account balance...", extra={'cycle_id': cycle_id})
+        logging.info("Fetching account balance (env_dv=%s)...", _current_env_dv, extra={'cycle_id': cycle_id})
         trenv = ka.getTREnv()
         thread_local.cycle_id = cycle_id # Set cycle_id for external logs
         df1, df2 = inquire_balance(
-            env_dv="real",
+            env_dv=_current_env_dv,
             cano=trenv.my_acct, 
             acnt_prdt_cd=trenv.my_prod,
             afhr_flpr_yn="N",
@@ -115,18 +118,19 @@ def get_balance(cycle_id):
 
 def get_daily_history(cycle_id, stock_code: str, days: int):
     """Fetches the daily price history for a given stock code for a number of days."""
-    if not _is_authenticated:
-        logging.error("Authentication required before fetching history.", extra={'cycle_id': cycle_id})
+    global _current_env_dv
+    if not _is_authenticated or _current_env_dv is None:
+        logging.error("Authentication required and env_dv must be set before fetching history.", extra={'cycle_id': cycle_id})
         return None
 
     try:
-        logging.info("Fetching daily history for %s for %d days...", stock_code, days, extra={'cycle_id': cycle_id})
+        logging.info("Fetching daily history for %s for %d days (env_dv=%s)...", stock_code, days, _current_env_dv, extra={'cycle_id': cycle_id})
         thread_local.cycle_id = cycle_id # Set cycle_id for external logs
         
         # KIS API 'inquire-daily-itemchartprice'는 최근 데이터를 기준으로 조회합니다.
         # 'D'는 일봉, 'W'는 주봉, 'M'은 월봉을 의미합니다.
         df_history = inquire_daily_itemchartprice(
-            env_dv="real",
+            env_dv=_current_env_dv,
             fid_cond_mrkt_div_code="J",
             fid_input_iscd=stock_code,
             fid_period_div_code="D", # D: 일봉
