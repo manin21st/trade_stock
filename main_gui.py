@@ -10,7 +10,7 @@ import logging
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QTextEdit, QCheckBox, QSpinBox, QDoubleSpinBox,
-    QFormLayout, QGroupBox, QComboBox, QScrollArea
+    QFormLayout, QGroupBox, QComboBox, QScrollArea, QTabWidget, QGridLayout
 )
 from PyQt6.QtCore import Qt
 
@@ -27,15 +27,32 @@ class MainWindow(QMainWindow):
         # --- Main Layout ---
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget) # Use QVBoxLayout for the main layout
 
-        # --- Left Side: Config ---
+        self.tab_widget = QTabWidget()
+        main_layout.addWidget(self.tab_widget)
+
+        # --- Configuration Tab ---
+        config_tab = QWidget()
+        self.tab_widget.addTab(config_tab, "Configuration")
+        config_tab_layout = QVBoxLayout(config_tab) # Layout for the config tab
+
         config_scroll_area = QScrollArea()
         config_scroll_area.setWidgetResizable(True)
-        config_group = QGroupBox("Strategy Configuration")
-        config_layout = QVBoxLayout(config_group)
+        self.config_container_widget = QWidget() # A container widget for the config groups
+        config_scroll_area.setWidget(self.config_container_widget)
+        self.config_main_layout = QVBoxLayout(self.config_container_widget) # This will hold the 3-column layout
 
-        # --- General Settings ---
+        config_tab_layout.addWidget(config_scroll_area)
+
+        # --- Configuration Tab Layout (3 columns) ---
+        config_grid_layout = QGridLayout()
+        config_grid_layout.setColumnStretch(0, 1) # Equal width for column 0
+        config_grid_layout.setColumnStretch(1, 1) # Equal width for column 1
+        config_grid_layout.setColumnStretch(2, 1) # Equal width for column 2
+        self.config_main_layout.addLayout(config_grid_layout)
+
+        # Column 1: General Settings (now includes simple buy/sell conditions)
         general_group = QGroupBox("General Settings")
         general_form = QFormLayout()
         self.trading_mode_combo = QComboBox()
@@ -43,65 +60,100 @@ class MainWindow(QMainWindow):
         self.stock_input = QLineEdit()
         self.interval_input = QSpinBox(maximum=86400, minimum=1, singleStep=1, suffix=" sec")
         general_form.addRow("실행 모드:", self.trading_mode_combo)
-        general_form.addRow("Target Stock:", self.stock_input)
-        general_form.addRow("Loop Interval:", self.interval_input)
-        general_group.setLayout(general_form)
-
-        # --- Simple Buy/Sell Conditions ---
-        simple_conditions_group = QGroupBox("Simple Buy/Sell Conditions")
-        simple_form = QFormLayout()
+        general_form.addRow("대상 종목:", self.stock_input)
+        general_form.addRow("반복 주기:", self.interval_input)
+        
+        # Merged Simple Buy/Sell Conditions
         self.price_input = QSpinBox(maximum=10000000, singleStep=100)
-        self.trading_hours_check = QCheckBox("Check Trading Hours")
+        self.trading_hours_check = QCheckBox("거래 시간 확인")
         self.cash_input = QSpinBox(maximum=100000000, singleStep=10000)
         self.profit_input = QDoubleSpinBox(maximum=100.0, minimum=-100.0, singleStep=0.5, suffix=" %")
         self.loss_input = QDoubleSpinBox(maximum=100.0, minimum=-100.0, singleStep=0.5, suffix=" %")
-        simple_form.addRow("Buy Target Price:", self.price_input)
-        simple_form.addRow("Buy Min Cash:", self.cash_input)
-        simple_form.addRow(self.trading_hours_check)
-        simple_form.addRow("Sell Target Profit:", self.profit_input)
-        simple_form.addRow("Sell Stop Loss:", self.loss_input)
-        simple_conditions_group.setLayout(simple_form)
+        general_form.addRow("매수 목표 가격:", self.price_input)
+        general_form.addRow("최소 현금 보유액:", self.cash_input)
+        general_form.addRow(self.trading_hours_check)
+        general_form.addRow("매도 목표 수익률:", self.profit_input)
+        general_form.addRow("매도 손절률:", self.loss_input)
+        general_group.setLayout(general_form)
+        config_grid_layout.addWidget(general_group, 0, 0)
 
-        # --- Technical Analysis Buy Conditions ---
-        buy_ta_group = self._create_buy_ta_group()
+        # Column 2: Buy Conditions (without TA)
+        buy_conditions_group = QGroupBox("매수 조건")
+        buy_conditions_layout = QVBoxLayout(buy_conditions_group)
+        buy_conditions_layout.addWidget(QLabel("기술적 분석 조건은 제거되었습니다."))
+        buy_conditions_layout.addWidget(QLabel("향후 추가 매수 조건 구현 예정"))
+        config_grid_layout.addWidget(buy_conditions_group, 0, 1)
 
-        # --- Technical Analysis Sell Conditions ---
-        sell_ta_group = self._create_sell_ta_group()
+        # Column 3: Sell Conditions (without TA)
+        sell_conditions_group = QGroupBox("매도 조건")
+        sell_conditions_layout = QVBoxLayout(sell_conditions_group)
+        sell_conditions_layout.addWidget(QLabel("기술적 분석 조건은 제거되었습니다."))
+        sell_conditions_layout.addWidget(QLabel("향후 추가 매도 조건 구현 예정"))
+        config_grid_layout.addWidget(sell_conditions_group, 0, 2)
 
-        # --- Save Button ---
-        self.save_button = QPushButton("Save Configuration")
+        # --- Save Button (Top Right of Config Tab) ---
+        save_button_container = QWidget()
+        save_button_layout = QHBoxLayout(save_button_container)
+        save_button_layout.addStretch()
+        self.save_button = QPushButton("설정 저장")
+        self.save_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3; /* Blue */
+                color: white;
+                font-weight: bold;
+                padding: 10px 20px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2; /* Darker Blue on hover */
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1; /* Even Darker Blue when pressed */
+            }
+        """)
+        save_button_layout.addWidget(self.save_button)
+        config_tab_layout.addWidget(save_button_container) # Add to config_tab_layout, not config_main_layout
+        config_tab_layout.addStretch() # Push content to top
 
-        # --- Assemble Config Layout ---
-        config_layout.addWidget(general_group)
-        config_layout.addWidget(simple_conditions_group)
-        config_layout.addWidget(buy_ta_group)
-        config_layout.addWidget(sell_ta_group)
-        config_layout.addWidget(self.save_button)
-        config_layout.addStretch()
-        
-        config_scroll_area.setWidget(config_group)
+        # --- Log Viewer Tab ---
+        log_tab = QWidget()
+        self.tab_widget.addTab(log_tab, "Log Viewer")
+        log_tab_layout = QVBoxLayout(log_tab) # Layout for the log tab
 
-        # --- Right Side: Log Viewer ---
-        log_group = QGroupBox("Log Viewer")
+        log_group = QGroupBox("Log Viewer") # Keep the group box for visual consistency
+        log_group_layout = QVBoxLayout(log_group)
         self.log_display = QTextEdit()
         self.log_display.setReadOnly(True)
         self.full_log_content = ""
 
         filter_layout = QHBoxLayout()
+        filter_label = QLabel("사이클 ID 필터:")
         self.cycle_filter_combo = QComboBox()
         self.refresh_log_button = QPushButton("로그 새로고침")
-        filter_layout.addWidget(QLabel("사이클 ID 필터:"))
+        self.refresh_log_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3; /* Blue */
+                color: white;
+                font-weight: bold;
+                padding: 5px 10px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2; /* Darker Blue on hover */
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1; /* Even Darker Blue when pressed */
+            }
+        """)
+        
+        filter_layout.addWidget(filter_label)
         filter_layout.addWidget(self.cycle_filter_combo)
+        filter_layout.addStretch() # Push refresh button to the right
         filter_layout.addWidget(self.refresh_log_button)
         
-        log_layout = QVBoxLayout()
-        log_layout.addLayout(filter_layout)
-        log_layout.addWidget(self.log_display)
-        log_group.setLayout(log_layout)
-
-        # --- Combine Layouts ---
-        main_layout.addWidget(config_scroll_area, 1)
-        main_layout.addWidget(log_group, 2)
+        log_group_layout.addLayout(filter_layout)
+        log_group_layout.addWidget(self.log_display)
+        log_tab_layout.addWidget(log_group) # Add the log_group to the log_tab_layout
 
         # --- Connections ---
         self.save_button.clicked.connect(self.save_config)
@@ -112,75 +164,7 @@ class MainWindow(QMainWindow):
         self.load_config()
         self.load_log()
 
-    def _create_buy_ta_group(self):
-        group = QGroupBox("매수 조건 (기술적 분석)")
-        layout = QVBoxLayout(group)
 
-        # MA Cross
-        ma_group = QGroupBox("이동평균선 교차")
-        self.buy_ma_check = QCheckBox("활성화", ma_group) # Use QCheckBox for enabled state
-        ma_form = QFormLayout(ma_group)
-        ma_form.addRow(self.buy_ma_check)
-        self.buy_ma_short = QSpinBox(minimum=1, maximum=200)
-        self.buy_ma_long = QSpinBox(minimum=1, maximum=200)
-        ma_form.addRow("단기 기간(일):", self.buy_ma_short)
-        ma_form.addRow("장기 기간(일):", self.buy_ma_long)
-        
-        # Bollinger Bands
-        bb_group = QGroupBox("볼린저 밴드")
-        self.buy_bb_check = QCheckBox("활성화", bb_group) # Use QCheckBox for enabled state
-        bb_form = QFormLayout(bb_group)
-        bb_form.addRow(self.buy_bb_check)
-        self.buy_bb_days = QSpinBox(minimum=1, maximum=200)
-        self.buy_bb_std = QDoubleSpinBox(minimum=0.1, maximum=5.0, singleStep=0.1)
-        bb_form.addRow("기간(일):", self.buy_bb_days)
-        bb_form.addRow("표준편차:", self.buy_bb_std)
-
-        # RSI
-        rsi_group = QGroupBox("RSI (상대강도지수)")
-        self.buy_rsi_check = QCheckBox("활성화", rsi_group) # Use QCheckBox for enabled state
-        rsi_form = QFormLayout(rsi_group)
-        rsi_form.addRow(self.buy_rsi_check)
-        self.buy_rsi_days = QSpinBox(minimum=1, maximum=200)
-        self.buy_rsi_threshold = QSpinBox(minimum=1, maximum=100)
-        rsi_form.addRow("기간(일):", self.buy_rsi_days)
-        rsi_form.addRow("매수 기준값 (이하):", self.buy_rsi_threshold)
-
-        layout.addWidget(ma_group)
-        layout.addWidget(bb_group)
-        layout.addWidget(rsi_group)
-        return group
-
-    def _create_sell_ta_group(self):
-        group = QGroupBox("매도 조건 (기술적 분석)")
-        layout = QVBoxLayout(group)
-
-        # MA Cross
-        ma_group = QGroupBox("이동평균선 교차")
-        self.sell_ma_check = QCheckBox("활성화", ma_group) # Use QCheckBox for enabled state
-        ma_form = QFormLayout(ma_group)
-        ma_form.addRow(self.sell_ma_check)
-        
-        # Bollinger Bands
-        bb_group = QGroupBox("볼린저 밴드")
-        self.sell_bb_check = QCheckBox("활성화", bb_group) # Use QCheckBox for enabled state
-        bb_form = QFormLayout(bb_group)
-        bb_form.addRow(self.sell_bb_check)
-
-        # RSI
-        rsi_group = QGroupBox("RSI (상대강도지수)")
-        self.sell_rsi_check = QCheckBox("활성화", rsi_group) # Use QCheckBox for enabled state
-        rsi_form = QFormLayout(rsi_group)
-        rsi_form.addRow(self.sell_rsi_check)
-        self.sell_rsi_days = QSpinBox(minimum=1, maximum=200)
-        self.sell_rsi_threshold = QSpinBox(minimum=1, maximum=100)
-        rsi_form.addRow("기간(일):", self.sell_rsi_days)
-        rsi_form.addRow("매도 기준값 (이상):", self.sell_rsi_threshold)
-
-        layout.addWidget(ma_group)
-        layout.addWidget(bb_group)
-        layout.addWidget(rsi_group)
-        return group
 
     def load_config(self):
         try:
@@ -195,7 +179,7 @@ class MainWindow(QMainWindow):
             self.stock_input.setText(strategy_config.get('target_stock', ''))
             self.interval_input.setValue(strategy_config.get('loop_interval_seconds', 300))
 
-            # Simple Conditions
+            # Simple Conditions (now part of General Settings)
             buy_conditions = strategy_config.get('buy_conditions', {})
             self.price_input.setValue(buy_conditions.get('target_price', 0))
             self.trading_hours_check.setChecked(buy_conditions.get('check_trading_hours', False))
@@ -205,32 +189,9 @@ class MainWindow(QMainWindow):
             self.profit_input.setValue(sell_conditions.get('target_profit_percent', 0.0))
             self.loss_input.setValue(sell_conditions.get('stop_loss_percent', 0.0))
 
-            # TA Buy Conditions
-            buy_ta = buy_conditions.get('technical_analysis', {})
-            buy_ma = buy_ta.get('moving_average_cross', {})
-            self.buy_ma_check.setChecked(buy_ma.get('enabled', False))
-            self.buy_ma_short.setValue(buy_ma.get('short_term_days', 20))
-            self.buy_ma_long.setValue(buy_ma.get('long_term_days', 60))
-            
-            buy_bb = buy_ta.get('bollinger_bands', {})
-            self.buy_bb_check.setChecked(buy_bb.get('enabled', False))
-            self.buy_bb_days.setValue(buy_bb.get('days', 20))
-            self.buy_bb_std.setValue(buy_bb.get('std_dev', 2.0))
-
-            buy_rsi = buy_ta.get('rsi', {})
-            self.buy_rsi_check.setChecked(buy_rsi.get('enabled', False))
-            self.buy_rsi_days.setValue(buy_rsi.get('days', 14))
-            self.buy_rsi_threshold.setValue(buy_rsi.get('buy_threshold', 30))
-
-            # TA Sell Conditions
-            sell_ta = sell_conditions.get('technical_analysis', {})
-            self.sell_ma_check.setChecked(sell_ta.get('moving_average_cross', {}).get('enabled', False))
-            self.sell_bb_check.setChecked(sell_ta.get('bollinger_bands', {}).get('enabled', False))
-            
-            sell_rsi = sell_ta.get('rsi', {})
-            self.sell_rsi_check.setChecked(sell_rsi.get('enabled', False))
-            self.sell_rsi_days.setValue(sell_rsi.get('days', 14))
-            self.sell_rsi_threshold.setValue(sell_rsi.get('sell_threshold', 70))
+            # Technical Analysis conditions are removed from GUI, but keep their values if they exist in config.json
+            # This ensures that if main_cmd.py still uses them, they are preserved.
+            # We will not load them into GUI widgets as those widgets no longer exist.
 
         except FileNotFoundError:
             logging.warning(f"{CONFIG_FILE} not found. Using default values.")
@@ -249,38 +210,42 @@ class MainWindow(QMainWindow):
                     "target_price": self.price_input.value(),
                     "check_trading_hours": self.trading_hours_check.isChecked(),
                     "min_cash_amount": self.cash_input.value(),
+                    # Technical Analysis conditions are removed from GUI, but keep their values if they exist in config.json
+                    # This ensures that if main_cmd.py still uses them, they are preserved.
                     "technical_analysis": {
                         "moving_average_cross": {
-                            "enabled": self.buy_ma_check.isChecked(),
-                            "short_term_days": self.buy_ma_short.value(),
-                            "long_term_days": self.buy_ma_long.value()
+                            "enabled": False, # Removed from GUI
+                            "short_term_days": 20,
+                            "long_term_days": 60
                         },
                         "bollinger_bands": {
-                            "enabled": self.buy_bb_check.isChecked(),
-                            "days": self.buy_bb_days.value(),
-                            "std_dev": self.buy_bb_std.value()
+                            "enabled": False, # Removed from GUI
+                            "days": 20,
+                            "std_dev": 2.0
                         },
                         "rsi": {
-                            "enabled": self.buy_rsi_check.isChecked(),
-                            "days": self.buy_rsi_days.value(),
-                            "buy_threshold": self.buy_rsi_threshold.value()
+                            "enabled": False, # Removed from GUI
+                            "days": 14,
+                            "buy_threshold": 30
                         }
                     }
                 },
                 "sell_conditions": {
                     "target_profit_percent": self.profit_input.value(),
                     "stop_loss_percent": self.loss_input.value(),
+                    # Technical Analysis conditions are removed from GUI, but keep their values if they exist in config.json
+                    # This ensures that if main_cmd.py still uses them, they are preserved.
                     "technical_analysis": {
                         "moving_average_cross": {
-                            "enabled": self.sell_ma_check.isChecked()
+                            "enabled": False # Removed from GUI
                         },
                         "bollinger_bands": {
-                            "enabled": self.sell_bb_check.isChecked()
+                            "enabled": False # Removed from GUI
                         },
                         "rsi": {
-                            "enabled": self.sell_rsi_check.isChecked(),
-                            "days": self.sell_rsi_days.value(),
-                            "sell_threshold": self.sell_rsi_threshold.value()
+                            "enabled": False, # Removed from GUI
+                            "days": 14,
+                            "sell_threshold": 70
                         }
                     }
                 }
@@ -291,8 +256,10 @@ class MainWindow(QMainWindow):
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=4, ensure_ascii=False)
             logging.info(f"Configuration saved to {CONFIG_FILE}")
+            self.statusBar().showMessage("설정이 저장되었습니다!", 3000) # Show message for 3 seconds
         except Exception as e:
             logging.error(f"Error saving config: {e}")
+            self.statusBar().showMessage(f"설정 저장 오류: {e}", 5000) # Show error message for 5 seconds
 
     def load_log(self):
         """Loads the content of the log file into the text display and populates cycle filter."""
