@@ -8,6 +8,7 @@ This module handles API authentication and data fetching, independent of the GUI
 import sys
 import os
 import logging
+import json
 import pandas as pd
 from main_cmd import thread_local
 
@@ -16,7 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'open-trading-api', 'exa
 sys.path.append(os.path.join(os.path.dirname(__file__), 'open-trading-api', 'examples_user', 'domestic_stock'))
 
 import kis_auth as ka
-from domestic_stock_functions import inquire_price, inquire_balance, search_stock_info
+from domestic_stock_functions import inquire_price, inquire_balance, search_stock_info, inquire_daily_itemchartprice
 
 def suppress_external_logging():
     """Suppresses INFO/WARNING logs from external libraries."""
@@ -27,15 +28,24 @@ def suppress_external_logging():
 _is_authenticated = False
 
 def authenticate(cycle_id=None):
-    """Authenticates with the KIS API."""
-    suppress_external_logging() # Suppress external logs early
+    """Authenticates with the KIS API based on the mode in config.json."""
+    suppress_external_logging()
     global _is_authenticated
     if _is_authenticated:
         logging.info("Already authenticated.", extra={'cycle_id': cycle_id})
         return True
-    
+
     try:
-        ka.auth() # This sets up the environment in the kis_auth module
+        with open('config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        trading_mode = config.get('trading_mode', 'real') # Default to 'real'
+        svr_mode = "vps" if trading_mode == "paper" else "prod"
+        
+        logging.info("Authenticating in '%s' mode (svr=%s)...", trading_mode, svr_mode, extra={'cycle_id': cycle_id})
+        
+        ka.auth(svr=svr_mode) # Set environment based on config
+        
         _is_authenticated = True
         logging.info("Authentication successful.", extra={'cycle_id': cycle_id})
         return True
@@ -102,3 +112,38 @@ def get_balance(cycle_id):
     except Exception as e:
         logging.error("Failed to fetch account balance: %s", e, extra={'cycle_id': cycle_id})
         return None, None
+
+def get_daily_history(cycle_id, stock_code: str, days: int):
+    """Fetches the daily price history for a given stock code for a number of days."""
+    if not _is_authenticated:
+        logging.error("Authentication required before fetching history.", extra={'cycle_id': cycle_id})
+        return None
+
+    try:
+        logging.info("Fetching daily history for %s for %d days...", stock_code, days, extra={'cycle_id': cycle_id})
+        thread_local.cycle_id = cycle_id # Set cycle_id for external logs
+        
+        # KIS API 'inquire-daily-itemchartprice'는 최근 데이터를 기준으로 조회합니다.
+        # 'D'는 일봉, 'W'는 주봉, 'M'은 월봉을 의미합니다.
+        df_history = inquire_daily_itemchartprice(
+            env_dv="real",
+            fid_cond_mrkt_div_code="J",
+            fid_input_iscd=stock_code,
+            fid_period_div_code="D", # D: 일봉
+            fid_org_adj_prc="1" # 1: 수정주가
+        )
+        
+        thread_local.cycle_id = None # Clear after call
+        
+        if df_history is not None and not df_history.empty:
+            # API는 요청한 기간보다 많은 데이터를 반환할 수 있으므로, 필요한 만큼만 잘라 사용합니다.
+            df_history = df_history.tail(days).reset_index(drop=True)
+            logging.info("Daily history data fetched successfully. Shape: %s", df_history.shape, extra={'cycle_id': cycle_id})
+            return df_history
+        else:
+            logging.warning("No daily history data returned for %s.", stock_code, extra={'cycle_id': cycle_id})
+            return None
+
+    except Exception as e:
+        logging.error("Failed to fetch daily history: %s", e, extra={'cycle_id': cycle_id})
+        return None

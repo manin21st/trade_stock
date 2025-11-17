@@ -1,15 +1,46 @@
 {
+    "trading_mode": "real",
     "strategy_A": {
         "target_stock": "005930",
         "loop_interval_seconds": 5,
         "buy_conditions": {
             "target_price": 80000,
             "check_trading_hours": true,
-            "min_cash_amount": 100000
+            "min_cash_amount": 100000,
+            "technical_analysis": {
+                "moving_average_cross": {
+                    "enabled": true,
+                    "short_term_days": 20,
+                    "long_term_days": 60
+                },
+                "bollinger_bands": {
+                    "enabled": true,
+                    "days": 20,
+                    "std_dev": 2
+                },
+                "rsi": {
+                    "enabled": true,
+                    "days": 14,
+                    "buy_threshold": 30
+                }
+            }
         },
         "sell_conditions": {
             "target_profit_percent": 5.0,
-            "stop_loss_percent": -3.0
+            "stop_loss_percent": -3.0,
+            "technical_analysis": {
+                "moving_average_cross": {
+                    "enabled": true
+                },
+                "bollinger_bands": {
+                    "enabled": true
+                },
+                "rsi": {
+                    "enabled": true,
+                    "days": 14,
+                    "sell_threshold": 70
+                }
+            }
         }
     }
 }

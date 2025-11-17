@@ -85,7 +85,46 @@ C:\DigitalTwin\trade_stock
 
 - **저장소 주소:** `https://github.com/manin21st/trade_stock.git`
 
-## 8. 로드맵 (Roadmap)
+## 8. 설정 파일 (`config.json`) 상세 설명
+
+이 파일은 자동매매 봇의 모든 전략과 실행 환경을 제어합니다.
+
+-   `trading_mode`: 프로그램의 실행 모드를 결정합니다.
+    -   `"real"`: 실전투자 모드입니다. `kis_devlp.yaml`에 설정된 실전투자용 AppKey/AppSecret을 사용하여 실제 계좌에서 매매가 이루어집니다.
+    -   `"paper"`: 모의투자 모드입니다. `kis_devlp.yaml`에 설정된 모의투자용 AppKey/AppSecret을 사용하여 가상 계좌에서 매매가 이루어집니다.
+
+-   `strategy_A`: "전략 A"에 대한 설정 그룹입니다.
+    -   `target_stock`: 매매를 시도할 대상 종목의 코드입니다. (예: "005930" for 삼성전자)
+    -   `loop_interval_seconds`: 매매 조건 확인 사이클의 간격(초)입니다.
+
+-   `buy_conditions`: 매수 조건을 설정합니다.
+    -   `target_price`: 지정된 가격보다 현재가가 낮을 경우 매수를 시도합니다. (간단한 가격 기반 매수 조건)
+    -   `check_trading_hours`: `true`로 설정 시, 정규장 시간(예: 09:00-15:30)에만 매수를 시도합니다. (현재는 플레이스홀더)
+    -   `min_cash_amount`: 계좌의 현금 보유액이 이 값보다 많을 경우에만 매수를 시도합니다.
+    -   `technical_analysis`: 기술적 분석 기반 매수 조건입니다.
+        -   `moving_average_cross`: 이동평균선 교차 전략 설정.
+            -   `enabled`: `true`일 경우 이 전략을 사용합니다.
+            -   `short_term_days`: 단기 이동평균선 계산 기간(일).
+            -   `long_term_days`: 장기 이동평균선 계산 기간(일).
+        -   `bollinger_bands`: 볼린저 밴드 전략 설정.
+            -   `enabled`: `true`일 경우 이 전략을 사용합니다.
+            -   `days`: 볼린저 밴드 계산 기간(일).
+            -   `std_dev`: 표준편차 승수.
+        -   `rsi`: 상대강도지수(RSI) 전략 설정.
+            -   `enabled`: `true`일 경우 이 전략을 사용합니다.
+            -   `days`: RSI 계산 기간(일).
+            -   `buy_threshold`: 이 값 이하로 RSI가 떨어지면 과매도 상태로 판단하여 매수를 시도합니다.
+
+-   `sell_conditions`: 매도 조건을 설정합니다.
+    -   `target_profit_percent`: 보유 종목의 수익률이 이 값 이상일 경우 매도를 시도합니다.
+    -   `stop_loss_percent`: 보유 종목의 손실률이 이 값 이하일 경우(예: -3.0) 손절매를 시도합니다.
+    -   `technical_analysis`: 기술적 분석 기반 매도 조건입니다.
+        -   `moving_average_cross`: `enabled`가 `true`일 경우 데드 크로스(단기 이평선이 장기 이평선을 하향 돌파) 시 매도를 시도합니다.
+        -   `bollinger_bands`: `enabled`가 `true`일 경우 주가가 볼린저 밴드 상단을 돌파 시 매도를 시도합니다.
+        -   `rsi`: `enabled`가 `true`일 경우 RSI가 과매수 구간(예: `sell_threshold` 값 이상)에 진입 시 매도를 시도합니다.
+            -   `sell_threshold`: 과매수 판단 기준값.
+
+## 9. 로드맵 (Roadmap)
 
 - [x] 1. 초기 환경 설정 및 API 연동
 - [x] 2. 기본 GUI 뷰어 구현 (시세, 잔고 조회)
@@ -101,7 +140,7 @@ C:\DigitalTwin\trade_stock
 - [ ] 12. 거래 전략 수립 및 구현
 - [ ] 13. 서버 배포 및 자동 실행
 
-## 9. 변경 이력 (Changelog)
+## 10. 변경 이력 (Changelog)
 
 ### 2025-11-14
 - 클라우드 서버용 자동매매 엔진 (`main_cmd.py`) 구현 및 GUI 분리
