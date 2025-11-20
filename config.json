@@ -1,5 +1,5 @@
 {
-    "trading_mode": "real",
+    "trading_mode": "paper",
     "strategy_A": {
         "target_stock": "005930",
         "loop_interval_seconds": 4,
