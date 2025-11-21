@@ -6,28 +6,58 @@ Contains functions that execute buy and sell orders.
 """
 
 import logging
-import core_logic # Will be used to execute real orders
+import core_logic
 
-def order_market_buy(cycle_id, stock_code, quantity):
+def order_buy(cycle_id, stock_code, quantity, price=0, market="KRX"):
     """
-    Executes a market buy order.
-    (This is a placeholder and needs real implementation).
+    Executes a buy order (market or limit) by calling the core logic.
     """
+    order_type = "Market" if price == 0 else "Limit"
     logging.info("--- EXECUTE TRADE ---", extra={'cycle_id': cycle_id})
-    logging.warning("Trade execution is currently a placeholder and does not perform real trades.", extra={'cycle_id': cycle_id})
-    # In the future, this will call a function in core_logic.py
-    logging.info("--- TRADE COMPLETE (Placeholder) ---", extra={'cycle_id': cycle_id})
-    return True # Assume success for now
+    logging.info("Calling core_logic to place %s BUY order for %s: Qty=%s, Price=%s, Market=%s", 
+                 order_type, stock_code, quantity, "Market" if price == 0 else price, market,
+                 extra={'cycle_id': cycle_id})
 
-def order_market_sell(cycle_id, stock_code, quantity):
+    success, result = core_logic.create_order(
+        cycle_id=cycle_id,
+        trade_type='BUY',
+        stock_code=stock_code,
+        quantity=quantity,
+        price=price,
+        market=market
+    )
+    
+    if success:
+        logging.info("--- TRADE SUCCEEDED ---", extra={'cycle_id': cycle_id})
+    else:
+        logging.error("--- TRADE FAILED ---", extra={'cycle_id': cycle_id})
+        
+    return success
+
+def order_sell(cycle_id, stock_code, quantity, price=0, market="KRX"):
     """
-    Executes a market sell order.
-    (This is a placeholder and needs real implementation).
+    Executes a sell order (market or limit) by calling the core logic.
     """
+    order_type = "Market" if price == 0 else "Limit"
     logging.info("--- EXECUTE TRADE ---", extra={'cycle_id': cycle_id})
-    logging.info("Attempting to place MARKET SELL order for %s, quantity %s.", stock_code, quantity, extra={'cycle_id': cycle_id})
-    logging.warning("Trade execution is currently a placeholder and does not perform real trades.", extra={'cycle_id': cycle_id})
-    # In the future, this will call a function in core_logic.py
-    # e.g., core_logic.create_market_sell_order(...)
-    logging.info("--- TRADE COMPLETE (Placeholder) ---", extra={'cycle_id': cycle_id})
-    return True # Assume success for now
+    logging.info("Calling core_logic to place %s SELL order for %s: Qty=%s, Price=%s, Market=%s", 
+                 order_type, stock_code, quantity, "Market" if price == 0 else price, market,
+                 extra={'cycle_id': cycle_id})
+
+    success, result = core_logic.create_order(
+        cycle_id=cycle_id,
+        trade_type='SELL',
+        stock_code=stock_code,
+        quantity=quantity,
+        price=price,
+        market=market
+    )
+
+    if success:
+        logging.info("--- TRADE SUCCEEDED ---", extra={'cycle_id': cycle_id})
+    else:
+        logging.error("--- TRADE FAILED ---", extra={'cycle_id': cycle_id})
+        
+    return success
+
+

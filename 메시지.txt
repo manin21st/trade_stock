@@ -1,112 +1,29 @@
-## 리눅스 클라우드 서버 설정 가이드 (GitHub 동기화) - v2
+   2. 강제 매매로 NXT 시장 주문 테스트:
+       * forced_trade 섹션을 다음과 같이 설정합니다:
 
-이 문서는 GitHub 저장소를 리눅스 클라우드 서버에 동기화하고 자동매매 프로그램을 실행하기 위한 단계별 가이드입니다. 서버에 접속한 후, 다음 명령어를 순서대로 실행하시면 됩니다.
+   1         "forced_trade": {
+   2             "enabled": true,
+   3             "trade_type": "BUY",  // 또는 "SELL"
+   4             "stock_code": "005930", // 테스트할 종목코드
+   5             "quantity": 1,
+   6             "price": 0,           // 시장가 (지정가라면 원하는 가격 입력)
+   7             "market": "NXT"       // <--- 이 부분을 추가합니다!
+   8         },
+       * 터미널에서 py main_cmd.py를 실행합니다.
+       * main_cmd.log 파일에서 "Submitting BUY/SELL order ... Market=NXT"와 같은 로그가 남는지, 그리고 KIS      
+         모의투자 앱/웹에서 NXT 시장으로 주문이 정상적으로 시도되고 체결되었는지 확인합니다. (주문 후
+         forced_trade.enabled는 자동으로 false로 변경됩니다.)
 
----
+   3. 일반 규칙으로 NXT 시장 주문 테스트:
+       * config.json의 rules 섹션에서 원하는 규칙의 strategy.params에 `"market": "NXT"` 필드를 추가합니다.      
 
-### 1단계: 서버에 기본 도구 설치 (Git, Python, pip)
-
-서버에 Git, Python3, pip3가 이미 설치되어 있는지 확인하고, 설치되어 있지 않다면 설치합니다. 아래 스크립트를 복사하여 터미널에 붙여넣고 실행하세요.
-
-```bash
-# Git 설치 확인 및 설치
-if ! command -v git &> /dev/null; then
-    echo "Git이 설치되어 있지 않습니다. Git을 설치합니다."
-    sudo apt-get update && sudo apt-get install git -y
-else
-    echo "Git이 이미 설치되어 있습니다: $(git --version)"
-fi
-
-# Python3 설치 확인 및 설치
-if ! command -v python3 &> /dev/null; then
-    echo "Python3이 설치되어 있지 않습니다. Python3을 설치합니다."
-    sudo apt-get update && sudo apt-get install python3 -y
-else
-    echo "Python3이 이미 설치되어 있습니다: $(python3 --version)"
-fi
-
-# pip3 설치 확인 및 설치 (오류 해결 로직 포함)
-if ! command -v pip3 &> /dev/null; then
-    echo "pip3이 설치되어 있지 않습니다. pip3 설치를 시도합니다."
-    # apt-get update를 먼저 실행하여 패키지 목록을 최신화합니다.
-    sudo apt-get update
-    # software-properties-common 패키지 설치 (add-apt-repository를 위함)
-    sudo apt-get install -y software-properties-common
-    # universe 저장소 추가 (python3-pip가 포함된 경우가 많음)
-    sudo add-apt-repository universe
-    # 다시 패키지 목록 최신화
-    sudo apt-get update
-    # python3-pip 설치
-    sudo apt-get install -y python3-pip
-    
-    # 최종 확인
-    if ! command -v pip3 &> /dev/null; then
-        echo "pip3 설치에 실패했습니다. 시스템 환경을 확인해주세요."
-    else
-        echo "pip3 설치가 완료되었습니다."
-    fi
-else
-    echo "pip3가 이미 설치되어 있습니다: $(pip3 --version)"
-fi
-
-```
-*(위 스크립트는 Ubuntu/Debian 기반 시스템용입니다.)*
-
----
-
-### 2단계: GitHub 인증을 위한 SSH 키 설정 (권장)
-
-(이전과 동일: SSH 키를 생성하여 GitHub에 등록)
-
-1.  **SSH 키 생성:** `ssh-keygen -t rsa -b 4096 -C "your_email@example.com"`
-2.  **공개키 확인/복사:** `cat ~/.ssh/id_rsa.pub`
-3.  **GitHub에 등록:** GitHub 웹사이트의 `Settings > SSH and GPG keys`에 복사한 키를 등록합니다.
-
----
-
-### 3단계: GitHub에서 프로젝트 클론 (Clone)
-
-프로젝트를 복제합니다. (`--recurse-submodules` 옵션 필수)
-
-1.  **프로젝트 클론:** `git clone --recurse-submodules git@github.com:manin21st/trade_stock.git`
-2.  **폴더로 이동:** `cd trade_stock`
-
----
-
-### 4단계: 파이썬 라이브러리 설치
-
-`open-trading-api` 폴더의 `requirements.txt`를 사용하여 라이브러리를 설치합니다.
-
-```bash
-cd open-trading-api && pip3 install -r requirements.txt && cd ..
-```
-
----
-
-### 5단계: 설정 파일(`kis_devlp.yaml`) 생성
-
-리눅스 홈 디렉터리 아래에 설정 파일을 생성합니다.
-
-1.  **디렉터리 생성:** `mkdir -p ~/KIS/config`
-2.  **설정 파일 생성 및 편집:** `nano ~/KIS/config/kis_devlp.yaml`
-    (로컬 PC의 파일 내용을 복사하여 붙여넣고 저장)
-
----
-
-### 6단계: 자동매매 엔진 실행
-
-`nohup`을 사용하여 백그라운드에서 자동매매 엔진을 실행합니다.
-
-1.  **실행:** `nohup python3 main_cmd.py &`
-2.  **로그 확인:** `tail -f nohup.out` 또는 `tail -f main_cmd.log`
-3.  **종료:** `ps -ef | grep main_cmd.py`로 PID를 찾은 후 `kill <PID>`
-
----
-
-### 7단계: 향후 업데이트 동기화
-
-로컬 PC의 변경 사항을 서버에 반영합니다.
-
-```bash
-git pull && git submodule update --init --recursive
-```
+   1         "strategy": {
+   2             "name": "simple_buy",
+   3             "params": {
+   4                 "stock_code": "005930",
+   5                 "order_amount_krw": 100000,
+   6                 "market": "NXT" // <--- 이 부분을 추가합니다!
+   7             }
+   8         }
+       * 해당 규칙의 conditions가 충족되도록 현재 시장 상황이나 params 값을 조정합니다.
+       * py main_cmd.py를 실행하여 결과를 확인합니다.

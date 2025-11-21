@@ -85,87 +85,68 @@ def setup_logging():
 def _load_config():
     """Loads the shared configuration file."""
     try:
-        with open(CONFIG_FILE, 'r') as f:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f: # Added encoding for safety
             return json.load(f)
     except Exception as e:
         logging.error(f"Fatal: Failed to load or parse {CONFIG_FILE}: {e}")
         return None
 
-# --- Strategy A: Logic ---
-def should_sell(cycle_id, stock_code):
-    """Checks all detailed sell conditions for Strategy A."""
-    # For now, we only have placeholder sell conditions
-    logging.info("[%s] Checking sell conditions...", stock_code, extra={'cycle_id': cycle_id})
-    cond1 = condition.is_target_profit_reached(cycle_id, stock_code)
-    cond2 = condition.is_stop_loss_reached(cycle_id, stock_code)
-    # In a real scenario, you'd check if you actually own the stock
-    return any([cond1, cond2])
-
-def should_buy(cycle_id, stock_code):
-    """Checks all detailed buy conditions for Strategy A."""
-    logging.info("[%s] Checking buy conditions...", stock_code, extra={'cycle_id': cycle_id})
-    cond1 = condition.is_trading_hours(cycle_id)
-    cond2 = condition.is_price_below_target(cycle_id, stock_code)
-    cond3 = condition.has_sufficient_cash(cycle_id)
-    
-    logging.info("[%s] Buy condition check: TradingHours(%s), PriceBelowTarget(%s), SufficientCash(%s)", stock_code, cond1, cond2, cond3, extra={'cycle_id': cycle_id})
-    return all([cond1, cond2, cond3])
-
-def decide_action(cycle_id, stock_code):
-    """Decides and executes an action (buy/sell/hold) for a stock based on Strategy A."""
-    # Selling has priority. If we own the stock, check if we should sell.
-    if should_sell(cycle_id, stock_code):
-        logging.info("[%s] Sell condition met. Executing sell order.", stock_code, extra={'cycle_id': cycle_id})
-        trade.order_market_sell(cycle_id, stock_code, quantity=1) # Placeholder quantity
-        return
-
-    # If not selling, check if we should buy.
-    if should_buy(cycle_id, stock_code):
-        logging.info("[%s] Buy condition met. Executing buy order.", stock_code, extra={'cycle_id': cycle_id})
-        trade.order_market_buy(cycle_id, stock_code, quantity=1) # Placeholder quantity
-        return
-
-    # If neither, hold.
-    logging.info("[%s] No action taken. Holding.", stock_code, extra={'cycle_id': cycle_id})
+def _save_config(config_data):
+    """Saves the configuration file."""
+    try:
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logging.error(f"Fatal: Failed to save {CONFIG_FILE}: {e}")
 
 # --- Main Execution Loop ---
 def main_loop():
     """The main orchestrator loop."""
     while True:
         cycle_id = f"#{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-        
+        thread_local.cycle_id = cycle_id
+
         config = _load_config()
         if not config:
             logging.error("Could not load config, sleeping for 60 seconds.", extra={'cycle_id': cycle_id})
             time.sleep(60)
             continue
-
-        strategy_config = config.get('strategy_A', {})
-        target_stock = strategy_config.get('target_stock')
-        sleep_duration = strategy_config.get('loop_interval_seconds', 300)
-
-        if not target_stock:
-            logging.error("Fatal: 'target_stock' not found in config. Sleeping for 60 seconds.", extra={'cycle_id': cycle_id})
-            time.sleep(60)
-            continue
-
-        logging.info("------------------- New Cycle Start -------------------", extra={'cycle_id': cycle_id})
         
-        # Log a single-line summary of the configured strategy
-        summary_msg = (
-            f"Strategy A Config: Stock={target_stock}, Interval={sleep_duration}s, "
-            f"BuyPrice={strategy_config.get('buy_conditions', {}).get('target_price')}, "
-            f"MinCash={strategy_config.get('buy_conditions', {}).get('min_cash_amount')}, "
-            f"CheckHours={strategy_config.get('buy_conditions', {}).get('check_trading_hours')}, "
-            f"SellProfit={strategy_config.get('sell_conditions', {}).get('target_profit_percent')}%, "
-            f"StopLoss={strategy_config.get('sell_conditions', {}).get('stop_loss_percent')}%"
-        )
-        logging.info(summary_msg, extra={'cycle_id': cycle_id})
-        
-        thread_local.cycle_id = cycle_id
-        decide_action(cycle_id, target_stock)
+        sleep_duration = config.get('loop_interval_seconds', 60)
+
+        # Let the condition module decide what to do
+        action_to_take = condition.find_action_to_take(cycle_id, config)
+
+        if action_to_take:
+            action_type = action_to_take.get('type')
+            stock_code = action_to_take.get('stock_code')
+            strategy_name = action_to_take.get('strategy_name')
+
+            if action_type == 'BUY':
+                quantity = action_to_take.get('quantity')
+                price = action_to_take.get('price', 0)
+                market = action_to_take.get('market', "KRX") # Get market from action
+                logging.info("[%s] BUY action triggered by strategy '%s'.", stock_code, strategy_name, extra={'cycle_id': cycle_id})
+                trade.order_buy(cycle_id, stock_code, quantity=quantity, price=price, market=market) # Pass market
+
+            elif action_type == 'SELL':
+                quantity = action_to_take.get('quantity')
+                price = action_to_take.get('price', 0)
+                market = action_to_take.get('market', "KRX") # Get market from action
+                logging.info("[%s] SELL action triggered by strategy '%s'.", stock_code, strategy_name, extra={'cycle_id': cycle_id})
+                trade.order_sell(cycle_id, stock_code, quantity=quantity, price=price, market=market) # Pass market
+            
+            # The 'is_forced_trade' flag is now only for logging/distinction purposes
+            # The program will no longer automatically disable it.
+            # The user must manually set "enabled": false in config.json to stop it.
+            if action_to_take.get('is_forced_trade', False):
+                logging.info("Forced trade action was processed.", extra={'cycle_id': cycle_id})
+        else:
+            logging.info("No action taken in this cycle.", extra={'cycle_id': cycle_id})
+
         thread_local.cycle_id = None
-        
+        logging.info("", extra={'cycle_id': cycle_id})
+        logging.info("", extra={'cycle_id': cycle_id})
         time.sleep(sleep_duration)
 
 if __name__ == "__main__":

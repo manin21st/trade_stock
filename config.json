@@ -1,16 +1,86 @@
 {
     "trading_mode": "paper",
-    "strategy_A": {
-        "target_stock": "005930",
-        "loop_interval_seconds": 4,
-        "buy_conditions": {
-            "target_price": 79700,
-            "check_trading_hours": true,
-            "min_cash_amount": 100000
+    "loop_interval_seconds": 5,
+    "forced_trade": {
+        "enabled": true,
+        "trade_type": "BUY",
+        "stock_code": "005930",
+        "quantity": 1,
+        "price": 0,
+        "market": "NXT"
+    },
+    "rules": [
+        {
+            "rule_name": "Simple_Price_Buy_Rule",
+            "conditions": [
+                {
+                    "name": "is_trading_hours",
+                    "params": {
+                        "check_enabled": true
+                    }
+                },
+                {
+                    "name": "is_price_below_target",
+                    "params": {
+                        "stock_code": "005930",
+                        "target_price": 80000
+                    }
+                },
+                {
+                    "name": "has_sufficient_cash",
+                    "params": {
+                        "min_cash_amount": 100000
+                    }
+                }
+            ],
+            "strategy": {
+                "name": "simple_buy",
+                "params": {
+                    "stock_code": "005930",
+                    "order_amount_krw": 100000,
+                    "market": "KRX"
+                }
+            }
         },
-        "sell_conditions": {
-            "target_profit_percent": 5.0,
-            "stop_loss_percent": -3.0
+        {
+            "rule_name": "Target_Profit_Sell_Rule",
+            "conditions": [
+                {
+                    "name": "is_target_profit_reached",
+                    "params": {
+                        "stock_code": "005930",
+                        "target_profit_percent": 5.0
+                    }
+                }
+            ],
+            "strategy": {
+                "name": "simple_sell",
+                "params": {
+                    "stock_code": "005930",
+                    "sell_all": true,
+                    "market": "KRX"
+                }
+            }
+        },
+        {
+            "rule_name": "Stop_Loss_Sell_Rule",
+            "conditions": [
+                {
+                    "name": "is_stop_loss_reached",
+                    "params": {
+                        "stock_code": "005930",
+                        "stop_loss_percent": -3.0
+                    }
+                }
+            ],
+            "strategy": {
+                "name": "simple_sell",
+                "params": {
+                    "stock_code": "005930",
+                    "sell_all": true,
+                    "market": "KRX"
+                }
+            }
         }
-    }
+    ]
 }
