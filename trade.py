@@ -12,12 +12,6 @@ def order_buy(cycle_id, stock_code, quantity, price=0, market="KRX"):
     """
     Executes a buy order (market or limit) by calling the core logic.
     """
-    order_type = "Market" if price == 0 else "Limit"
-    logging.info("--- EXECUTE TRADE ---", extra={'cycle_id': cycle_id})
-    logging.info("Calling core_logic to place %s BUY order for %s: Qty=%s, Price=%s, Market=%s", 
-                 order_type, stock_code, quantity, "Market" if price == 0 else price, market,
-                 extra={'cycle_id': cycle_id})
-
     success, result = core_logic.create_order(
         cycle_id=cycle_id,
         trade_type='BUY',
@@ -26,24 +20,12 @@ def order_buy(cycle_id, stock_code, quantity, price=0, market="KRX"):
         price=price,
         market=market
     )
-    
-    if success:
-        logging.info("--- TRADE SUCCEEDED ---", extra={'cycle_id': cycle_id})
-    else:
-        logging.error("--- TRADE FAILED ---", extra={'cycle_id': cycle_id})
-        
     return success
 
 def order_sell(cycle_id, stock_code, quantity, price=0, market="KRX"):
     """
     Executes a sell order (market or limit) by calling the core logic.
     """
-    order_type = "Market" if price == 0 else "Limit"
-    logging.info("--- EXECUTE TRADE ---", extra={'cycle_id': cycle_id})
-    logging.info("Calling core_logic to place %s SELL order for %s: Qty=%s, Price=%s, Market=%s", 
-                 order_type, stock_code, quantity, "Market" if price == 0 else price, market,
-                 extra={'cycle_id': cycle_id})
-
     success, result = core_logic.create_order(
         cycle_id=cycle_id,
         trade_type='SELL',
@@ -52,12 +34,6 @@ def order_sell(cycle_id, stock_code, quantity, price=0, market="KRX"):
         price=price,
         market=market
     )
-
-    if success:
-        logging.info("--- TRADE SUCCEEDED ---", extra={'cycle_id': cycle_id})
-    else:
-        logging.error("--- TRADE FAILED ---", extra={'cycle_id': cycle_id})
-        
     return success
 
 

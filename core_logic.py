@@ -135,7 +135,7 @@ def _call_kis_api(api_func, cycle_id, stock_code=None, do_smart_sleep=True, **kw
         # Capture and log any output printed directly to stdout
         captured_output = redirected_output.getvalue()
         if captured_output:
-            logging.error("Captured API output from %s: %s", api_func.__name__, captured_output.strip(), extra={'cycle_id': cycle_id})
+            logging.warning("API 호출 중 경고: %s (함수: %s)", captured_output.strip(), api_func.__name__, extra={'cycle_id': cycle_id})
 
     except Exception as e:
         error_message = f"Exception calling {api_func.__name__}: {e}"
@@ -151,7 +151,7 @@ def _call_kis_api(api_func, cycle_id, stock_code=None, do_smart_sleep=True, **kw
 
 def get_price(cycle_id, stock_code: str):
     """Fetches the current price and stock info for a given stock code."""
-    logging.info("Fetching price for %s (env_dv=%s)...", stock_code, _current_env_dv, extra={'cycle_id': cycle_id})
+    logging.info("실시간 시세 조회: %s", stock_code, extra={'cycle_id': cycle_id})
     
     df_price, err_price = _call_kis_api(
         inquire_price,
@@ -179,7 +179,7 @@ def get_price(cycle_id, stock_code: str):
     #     logging.error("Failed to search stock info: %s", err_info, extra={'cycle_id': cycle_id})
     #     return None
     df_info = pd.DataFrame() # Temporarily disable search_stock_info
-    logging.info("Price data fetched successfully. (Stock info disabled)", extra={'cycle_id': cycle_id})
+    logging.info("시세 조회가 완료되었습니다.", extra={'cycle_id': cycle_id})
 
     if df_price is not None and df_info is not None:
         # To avoid duplicate columns, drop columns from df_info that are already in df_price
@@ -199,7 +199,7 @@ def get_balance(cycle_id):
         return None, None
 
     try:
-        logging.info("Fetching account balance (env_dv=%s)...", _current_env_dv, extra={'cycle_id': cycle_id})
+        logging.info("계좌 잔고 조회 중...", extra={'cycle_id': cycle_id})
         trenv = ka.getTREnv()
         
         balance_data, err_msg = _call_kis_api(
@@ -227,7 +227,7 @@ def get_balance(cycle_id):
         df1 = balance_data[0] if isinstance(balance_data, tuple) and len(balance_data) > 0 else pd.DataFrame()
         df2 = balance_data[1] if isinstance(balance_data, tuple) and len(balance_data) > 1 else pd.DataFrame()
 
-        logging.info("Account balance data fetched successfully.", extra={'cycle_id': cycle_id})
+        logging.info("계좌 잔고 조회가 완료되었습니다.", extra={'cycle_id': cycle_id})
         return df1, df2
     except Exception as e:
         logging.error("Failed to fetch account balance: %s", e, extra={'cycle_id': cycle_id})
@@ -241,7 +241,7 @@ def get_daily_history(cycle_id, stock_code: str, days: int):
         return None
 
     try:
-        logging.info("Fetching daily history for %s for %d days (env_dv=%s)...", stock_code, days, _current_env_dv, extra={'cycle_id': cycle_id})
+        logging.info("일별 시세 내역 조회: %s (%d일)", stock_code, days, extra={'cycle_id': cycle_id})
         
         df_history, err_msg = _call_kis_api(
             inquire_daily_itemchartprice,
@@ -258,7 +258,7 @@ def get_daily_history(cycle_id, stock_code: str, days: int):
         if df_history is not None and not df_history.empty:
             # API는 요청한 기간보다 많은 데이터를 반환할 수 있으므로, 필요한 만큼만 잘라 사용합니다.
             df_history = df_history.tail(days).reset_index(drop=True)
-            logging.info("Daily history data fetched successfully. Shape: %s", df_history.shape, extra={'cycle_id': cycle_id})
+            logging.info("일별 시세 내역 조회가 완료되었습니다.", extra={'cycle_id': cycle_id})
             return df_history
         else:
             logging.warning("No daily history data returned for %s.", stock_code, extra={'cycle_id': cycle_id})
@@ -270,47 +270,32 @@ def get_daily_history(cycle_id, stock_code: str, days: int):
 
 def create_order(cycle_id, trade_type, stock_code, quantity, price, market="KRX"):
     """
-    Creates a buy or sell order using the order_cash function.
+    주문(현금) API를 사용하여 매수 또는 매도 주문을 생성하고 관련 정보를 로깅합니다.
     """
     global _is_authenticated, _current_env_dv
     if not _is_authenticated or _current_env_dv is None:
-        logging.error("Authentication required and env_dv must be set before creating an order.", extra={'cycle_id': cycle_id})
+        logging.error("API 인증이 필요합니다.", extra={'cycle_id': cycle_id})
         return False, None
 
     try:
+        # 1. Get and log current balance
+        _, df_balance = get_balance(cycle_id)
+        if df_balance is not None and not df_balance.empty:
+            current_cash = int(df_balance['dnca_tot_amt'].iloc[0])
+            logging.info(f"- 주문 전 현금 잔고: {current_cash:,}원", extra={'cycle_id': cycle_id})
+        else:
+            logging.warning("- 주문 전 잔고를 조회하지 못했습니다.", extra={'cycle_id': cycle_id})
+
+        # 2. Prepare and log the order action
         trenv = ka.getTREnv()
+        trade_type_kor = "매수" if trade_type == 'BUY' else "매도"
+        price_kor = "시장가" if price == 0 else f"{price:,}원"
+        logging.info(f"- KIS API로 {trade_type_kor} 주문 전송 (종목: {stock_code}, 수량: {quantity}, 가격: {price_kor})", extra={'cycle_id': cycle_id})
         
         ord_dv = 'buy' if trade_type == 'BUY' else 'sell'
-        ord_dvsn = '02' if price == 0 else '01' # 01: 지정가, 02: 시장가
-        
-        # Get current price for logging purposes
-        current_price_str = "N/A"
-        try:
-            # Call get_price directly, as it's already a wrapper for API calls
-            price_df = get_price(cycle_id, stock_code)
-            if price_df is not None and not price_df.empty:
-                current_price_str = price_df['stck_prpr'].iloc[0]
-        except Exception:
-            logging.warning("Could not fetch current price for logging.", extra={'cycle_id': cycle_id})
+        ord_dvsn = '01' if price == 0 else '00' # 00: 지정가, 01: 시장가
 
-        logging.info("Submitting %s order: Stock=%s, Qty=%s, Price=%s, Market=%s, CurrentPrice=%s", 
-                     trade_type, stock_code, quantity, "Market" if price == 0 else price, market, current_price_str,
-                     extra={'cycle_id': cycle_id})
-
-        # Debug log for order_cash parameters
-        order_params_log = {
-            "env_dv": _current_env_dv,
-            "ord_dv": ord_dv,
-            "cano": trenv.my_acct,
-            "acnt_prdt_cd": trenv.my_prod,
-            "pdno": stock_code,
-            "ord_dvsn": ord_dvsn,
-            "ord_qty": str(quantity),
-            "ord_unpr": str(price),
-            "excg_id_dvsn_cd": market
-        }
-        logging.debug(f"Calling order_cash with parameters: {order_params_log}", extra={'cycle_id': cycle_id})
-
+        # 3. Call the API
         res_df, captured_err_output = _call_kis_api(
             order_cash,
             cycle_id,
@@ -322,30 +307,29 @@ def create_order(cycle_id, trade_type, stock_code, quantity, price, market="KRX"
             ord_qty=str(quantity),
             ord_unpr=str(price),
             excg_id_dvsn_cd=market,
-            do_smart_sleep=True # Smart sleep after the order call
+            do_smart_sleep=True
         )
         
-        if captured_err_output: # This means an exception occurred in _call_kis_api
-            logging.error("Order submission failed due to API call error: %s", captured_err_output, extra={'cycle_id': cycle_id})
+        if captured_err_output:
+            logging.error("주문 API 호출 중 오류 발생: %s", captured_err_output, extra={'cycle_id': cycle_id})
             return False, None
 
-        # Check if the returned DataFrame is valid and contains data
+        # 4. Process the result and log it
         if res_df is not None and not res_df.empty:
-            msg = res_df.get('msg1', [''])[0]
-            # A successful order usually returns a non-empty msg1.
-            if msg and ("정상" in msg or "처리완료" in msg or "주문" in msg):
-                logging.info("Order submission response: %s", msg, extra={'cycle_id': cycle_id})
-                logging.info("Order submitted successfully.", extra={'cycle_id': cycle_id})
+            if 'ODNO' in res_df.columns and res_df['ODNO'].iloc[0]:
+                order_no = res_df['ODNO'].iloc[0]
+                logging.info(f"- 주문 성공 (주문번호: {order_no})", extra={'cycle_id': cycle_id})
+                # 체결가는 별도 조회가 필요하므로, 여기서는 체결 확인이 필요함을 로깅
+                logging.info("- 체결 여부 및 체결가는 별도 조회를 통해 확인해야 합니다.", extra={'cycle_id': cycle_id})
                 return True, res_df
             else:
-                # Even if the df is not empty, if the message is not indicative of success, treat as failure.
-                logging.error("Order submission failed. API Response: %s", res_df.to_dict('records'), extra={'cycle_id': cycle_id})
+                api_msg = res_df.get('msg1', pd.Series(['API 응답 메시지 없음']))[0]
+                logging.error("주문 실패: %s", api_msg, extra={'cycle_id': cycle_id})
                 return False, res_df
         else:
-            # This path is taken if the API call itself fails and returns an empty DataFrame from the wrapper.
-            logging.error("Order submission failed. No valid response data received from API.", extra={'cycle_id': cycle_id})
+            logging.error("주문 실패: API로부터 유효한 응답을 받지 못했습니다.", extra={'cycle_id': cycle_id})
             return False, None
 
     except Exception as e:
-        logging.error("Exception occurred while creating order: %s", e, extra={'cycle_id': cycle_id})
+        logging.error("주문 처리 중 예외 발생: %s", e, extra={'cycle_id': cycle_id})
         return False, None

@@ -121,28 +121,34 @@ def main_loop():
             action_type = action_to_take.get('type')
             stock_code = action_to_take.get('stock_code')
             strategy_name = action_to_take.get('strategy_name')
+            trade_successful = False
 
             if action_type == 'BUY':
                 quantity = action_to_take.get('quantity')
                 price = action_to_take.get('price', 0)
                 market = action_to_take.get('market', "KRX") # Get market from action
-                logging.info("[%s] BUY action triggered by strategy '%s'.", stock_code, strategy_name, extra={'cycle_id': cycle_id})
-                trade.order_buy(cycle_id, stock_code, quantity=quantity, price=price, market=market) # Pass market
+                logging.info("[%s] 매수 결정 (전략: '%s')", stock_code, strategy_name, extra={'cycle_id': cycle_id})
+                trade_successful = trade.order_buy(cycle_id, stock_code, quantity=quantity, price=price, market=market) # Pass market
 
             elif action_type == 'SELL':
                 quantity = action_to_take.get('quantity')
                 price = action_to_take.get('price', 0)
                 market = action_to_take.get('market', "KRX") # Get market from action
-                logging.info("[%s] SELL action triggered by strategy '%s'.", stock_code, strategy_name, extra={'cycle_id': cycle_id})
-                trade.order_sell(cycle_id, stock_code, quantity=quantity, price=price, market=market) # Pass market
+                logging.info("[%s] 매도 결정 (전략: '%s')", stock_code, strategy_name, extra={'cycle_id': cycle_id})
+                trade_successful = trade.order_sell(cycle_id, stock_code, quantity=quantity, price=price, market=market) # Pass market
             
+            if trade_successful:
+                logging.info("최종 거래 결과: 성공", extra={'cycle_id': cycle_id})
+            else:
+                logging.error("최종 거래 결과: 실패", extra={'cycle_id': cycle_id})
+
             # The 'is_forced_trade' flag is now only for logging/distinction purposes
             # The program will no longer automatically disable it.
             # The user must manually set "enabled": false in config.json to stop it.
             if action_to_take.get('is_forced_trade', False):
-                logging.info("Forced trade action was processed.", extra={'cycle_id': cycle_id})
+                logging.info("강제 거래 명령이 처리되었습니다.", extra={'cycle_id': cycle_id})
         else:
-            logging.info("No action taken in this cycle.", extra={'cycle_id': cycle_id})
+            logging.info("이번 사이클에서는 거래 행동이 없습니다.", extra={'cycle_id': cycle_id})
 
         thread_local.cycle_id = None
         logging.info("", extra={'cycle_id': cycle_id})

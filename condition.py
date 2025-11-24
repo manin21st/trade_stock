@@ -56,10 +56,6 @@ def _check_forced_trade(cycle_id, config):
     if not all([trade_type, stock_code, quantity > 0]):
         logging.error("Forced trade is enabled but configuration is incomplete or invalid.", extra={'cycle_id': cycle_id})
         return None
-    
-    logging.info("Forced trade detected: Type=%s, Stock=%s, Qty=%s, Price=%s, Market=%s", 
-                 trade_type, stock_code, quantity, "Market" if price == 0 else price, market, extra={'cycle_id': cycle_id})
-
     action = {
         'type': trade_type,
         'stock_code': stock_code,
