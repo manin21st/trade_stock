@@ -11,7 +11,7 @@ strategy.py - 구체적인 매매 전략 라이브러리
 import logging
 import core_logic
 
-def simple_buy(cycle_id, params):
+def simple_buy(cycle_id, params, price_df, **kwargs):
     """
     1. 단순 매수 전략: 제공된 파라미터를 기반으로 간단한 매수 전략을 실행합니다.
     `main_cmd.py`가 처리할 매수 행동 딕셔너리를 반환합니다.
@@ -27,11 +27,10 @@ def simple_buy(cycle_id, params):
         return None
 
     if amount and not quantity:
-        current_price_df = core_logic.get_price(cycle_id, stock_code)
-        if current_price_df is None or current_price_df.empty:
-            logging.error("simple_buy 전략: 수량 계산을 위해 %s의 현재가를 가져올 수 없습니다.", stock_code)
+        if price_df is None or price_df.empty:
+            logging.error("simple_buy 전략: 수량 계산을 위한 현재가 데이터가 없습니다.")
             return None
-        current_price = int(current_price_df['stck_prpr'].iloc[0])
+        current_price = int(price_df['stck_prpr'].iloc[0])
         
         if current_price > 0:
             quantity = amount // current_price
@@ -56,7 +55,7 @@ def simple_buy(cycle_id, params):
         'strategy_name': 'simple_buy'
     }
 
-def simple_sell(cycle_id, params):
+def simple_sell(cycle_id, params, holdings_df, **kwargs):
     """
     2. 단순 매도 전략: 제공된 파라미터를 기반으로 간단한 매도 전략을 실행합니다.
     `main_cmd.py`가 처리할 매도 행동 딕셔너리를 반환합니다.
@@ -72,10 +71,9 @@ def simple_sell(cycle_id, params):
         return None
 
     if sell_all:
-        df_holdings, _ = core_logic.get_balance(cycle_id)
         held_qty = 0
-        if df_holdings is not None and not df_holdings.empty and 'pdno' in df_holdings.columns:
-            holding = df_holdings[df_holdings['pdno'] == stock_code]
+        if holdings_df is not None and not holdings_df.empty and 'pdno' in holdings_df.columns:
+            holding = holdings_df[holdings_df['pdno'] == stock_code]
             if not holding.empty:
                 held_qty = int(holding['hldg_qty'].iloc[0])
 
