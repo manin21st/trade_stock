@@ -18,13 +18,19 @@ import sys
 import json
 import datetime
 import threading
+import os
 
 import core_logic
 import condition
 import trade
 
-CONFIG_FILE = 'json/config.json'
-LOG_FILE = 'logs/main_cmd.log'
+# 이 스크립트(main_cmd.py)는 src 폴더 안에 있으므로, 상위 폴더가 프로젝트 루트가 됩니다.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# JSON 파일 및 로그 파일 경로를 프로젝트 루트 기준으로 설정
+CONFIG_FILE = os.path.join(PROJECT_ROOT, 'json', 'config.json')
+LOG_DIR = os.path.join(PROJECT_ROOT, 'logs')
+LOG_FILE = os.path.join(LOG_DIR, 'main_cmd.log')
 
 thread_local = threading.local()
 
@@ -45,6 +51,9 @@ class CustomFormatter(logging.Formatter):
 
 def setup_logging():
     """로깅 설정을 초기화하고 파일 및 콘솔로 로그를 출력하도록 구성합니다."""
+    # 로그 디렉토리가 없으면 생성
+    os.makedirs(LOG_DIR, exist_ok=True)
+    
     logger = logging.getLogger()
     # DEBUG 레벨로 설정하여 모든 레벨의 로그를 핸들러로 전달
     logger.setLevel(logging.DEBUG) 
