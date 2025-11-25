@@ -23,9 +23,12 @@ import inspect
 import core_logic
 import strategy
 
+# 이 스크립트(condition.py)는 src 폴더 안에 있으므로, 상위 폴더가 프로젝트 루트가 됩니다.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Constants for file paths
-TRADE_STATE_FILE = 'json/trade_state.json'
-CONFIG_FILE = 'json/config.json'
+TRADE_STATE_FILE = os.path.join(PROJECT_ROOT, 'json', 'trade_state.json')
+CONFIG_FILE = os.path.join(PROJECT_ROOT, 'json', 'config.json')
 
 # --- Trade State Management ---
 def _load_trade_state():
@@ -434,3 +437,34 @@ def _process_active_forced_trade(cycle_id, config, current_state):
         return {
             'type': action_type, 'stock_code': stock_code, 'quantity': order_quantity, 'price': price, 'market': market, 'strategy_name': f'FORCED_TRADE_{action_type}_DIVISION', 'is_forced_trade': True
         }
+
+def find_action_to_take(cycle_id, config):
+    """
+    현재 매매 사이클에서 취할 행동을 결정합니다.
+    - 강제 거래 상태가 있는지 확인하고, 있으면 해당 거래를 처리합니다.
+    - 강제 거래가 없으면 일반 매매 규칙을 평가하여 행동을 결정합니다.
+    """
+    logging.debug("[%s] 매매 행동 결정 시작...", cycle_id)
+    
+    # 1. 강제 거래 상태 확인 및 처리
+    trade_state = _load_trade_state()
+    if trade_state.get('active'):
+        logging.info("[%s] 활성 강제 거래 처리 중: %s", cycle_id, trade_state.get('trade_id', 'N/A'))
+        action = _process_active_forced_trade(cycle_id, config, trade_state)
+        if action:
+            logging.debug("[%s] 강제 거래에 따른 행동 결정됨: %s", cycle_id, action.get('type'))
+            return action
+        # 강제 거래가 처리되었으나 즉각적인 행동이 필요 없을 수도 있음 (e.g., 분할 매매 대기)
+        logging.debug("[%s] 강제 거래가 처리되었으나 이번 사이클에 즉각적인 행동 없음.", cycle_id)
+        return {'status': 'forced_trade_handled'} # main_cmd.py에서 이 상태를 인식하도록 반환
+
+    # 2. 일반 규칙 처리
+    logging.debug("[%s] 일반 매매 규칙 평가 중...", cycle_id)
+    action = _process_rules(cycle_id, config)
+    if action:
+        logging.debug("[%s] 일반 규칙에 따른 행동 결정됨: %s", cycle_id, action.get('type'))
+        return action
+
+    logging.debug("[%s] 이번 사이클에 취할 매매 행동이 없습니다.", cycle_id)
+    return None
+
