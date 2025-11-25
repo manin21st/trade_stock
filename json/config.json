@@ -1,14 +1,14 @@
 {
     "simulation_mode": true,
     "trading_mode": "paper",
-    "loop_interval_seconds": 5,
+    "loop_interval_seconds": 10,
     "forced_trade": {
         "enabled": true,
-        "trade_type": "BUY",
+        "trade_type": "AUTO",
         "stock_code": "005930",
-        "quantity": 1,
+        "quantity": 50,
         "price": 0,
-        "amount": 0,
+        "amount": 5000000,
         "market": "KRX",
         "division_count": 1,
         "sell_profit_target_percent": 0.5
