@@ -177,7 +177,7 @@ def is_target_profit_reached(cycle_id, stock_code, params):
         logging.debug("조건 'is_target_profit_reached': 해당 종목(%s)을 보유하고 있지 않습니다. 조건 미충족.", stock_code)
         return False
     
-    current_profit_rate = float(holding['prts_rate'].iloc[0])
+    current_profit_rate = float(holding['evlu_pfls_rt'].iloc[0])
     
     logging.debug("조건 'is_target_profit_reached': 현재 수익률=%.2f%%, 목표 수익률=%.2f%%", current_profit_rate, target_profit_percent)
 
@@ -209,7 +209,7 @@ def is_stop_loss_reached(cycle_id, stock_code, params):
         logging.debug("조건 'is_stop_loss_reached': 해당 종목(%s)을 보유하고 있지 않습니다. 조건 미충족.", stock_code)
         return False
     
-    current_profit_rate = float(holding['prts_rate'].iloc[0])
+    current_profit_rate = float(holding['evlu_pfls_rt'].iloc[0])
     
     logging.debug("조건 'is_stop_loss_reached': 현재 수익률=%.2f%%, 손절매 기준=%.2f%%", current_profit_rate, stop_loss_percent)
 
