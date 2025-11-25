@@ -1,0 +1,10 @@
+{
+    "cash": 9715043,
+    "stocks": [
+        {
+            "stock_code": "005930",
+            "quantity": 14,
+            "avg_buy_price": 70354.07142857143
+        }
+    ]
+}

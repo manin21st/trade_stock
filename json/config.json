@@ -1,4 +1,5 @@
 {
+    "simulation_mode": true,
     "trading_mode": "paper",
     "loop_interval_seconds": 5,
     "forced_trade": {
@@ -7,7 +8,10 @@
         "stock_code": "005930",
         "quantity": 1,
         "price": 0,
-        "market": "KRX"
+        "amount": 0,
+        "market": "KRX",
+        "division_count": 1,
+        "sell_profit_target_percent": 0.5
     },
     "rules": [
         {
@@ -37,7 +41,7 @@
                 "name": "simple_buy",
                 "params": {
                     "stock_code": "005930",
-                    "order_amount_krw": 100000,
+                    "amount": 100000,
                     "market": "KRX"
                 }
             }
