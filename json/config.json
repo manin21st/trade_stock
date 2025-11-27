@@ -11,7 +11,7 @@
         "amount": 5000000,
         "market": "KRX",
         "division_count": 1,
-        "sell_profit_target_percent": 0.5
+        "sell_profit_target_percent": 0.1
     },
     "rules": [
         {
