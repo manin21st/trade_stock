@@ -1,12 +1,76 @@
-(venv) root@s19a927c7bd5:~/trade_stock/src# python3 main_cmd.py
-Traceback (most recent call last):
-  File "/root/trade_stock/src/main_cmd.py", line 23, in <module>
-    import core_logic
-  File "/root/trade_stock/src/core_logic.py", line 17, in <module>
-    from main_cmd import thread_local
-  File "/root/trade_stock/src/main_cmd.py", line 24, in <module>
-    import condition
-  File "/root/trade_stock/src/condition.py", line 414
-    if trade_successful:
-IndentationError: unexpected indent
-(venv) root@s19a927c7bd5:~/trade_stock/src#
+✦ 알겠습니다. 추가 코멘트를 반영하여 계획을 수정하고, 명확하지 않다고 하신 부분을 더 구체적으로 설명하겠습니다.
+
+  수정된 최종 계획
+
+  1. `state.py` 리팩토링 (순수 데이터 관리자 역할 + 구체화)
+
+  state.py를 trade_state 데이터의 CRUD 및 순수 계산만을 책임지는 모듈로 만듭니다.
+
+   * 기본 함수 (이전 계획과 동일):
+       * init_trade_state(config)
+       * load_trade_state(): 전체 상태 딕셔너리 반환
+       * save_trade_state(state_dict): 전체 상태 딕셔너리 저장
+       * get_trade_state_value(key, default=None)
+       * set_trade_state_value(key, value)
+
+   * 신규 상태 '계산' 함수 (상세 설명):
+      이 함수들은 파일을 직접 저장하지 않고, 계산된 '다음 상태' 딕셔너리를 반환만 합니다. 상태 저장은 이 함수를
+  호출한 condition.py가 책임집니다.
+
+       * `update_state_after_buy(current_state, order_quantity, buy_price)`
+           * 역할: 매수 성공 후, 매수 수량과 가격을 바탕으로 평균 단가, 보유 수량 등 파생되는 상태 값들을
+             계산합니다.
+           * 입력:
+               * current_state (dict): 거래 직전의 상태.
+               * order_quantity (int): 실제 매수된 수량.
+               * buy_price (float): 실제 매수 단가.
+           * 처리 로직:
+               1. new_bought_quantity = current_state['bought_quantity'] + order_quantity
+               2. 새로운 평균 단가 계산: new_avg_price = ((기존 평단 * 기존 수량) + (이번 매수가 * 이번 수량))
+                  / 새로운 총 수량
+               3. remaining_quantity (남은 매수 목표 수량) 차감.
+               4. divisions_done (분할 실행 횟수) 1 증가.
+           * 반환: 위 계산이 모두 적용된 새로운 상태 딕셔너리(dict). ### 굳이 딕셔너리를 반환하지 말고 save_trade_state 나 set_trade_state_value 로 바로 수정하고 성공 여부만 리턴해.
+
+       * `reset_state_for_auto_cycle(current_state)`
+           * 역할: 'AUTO' 모드에서 매도 성공 후, 다시 매수 단계로 돌아가기 위해 상태 값들을 초기화합니다.
+           * 입력:
+               * current_state (dict): 매도 직후의 상태.
+           * 처리 로직:
+               1. current_phase를 'BUYING'으로 변경.
+               2. divisions_done, bought_quantity, avg_buy_price를 모두 0으로 리셋.
+               3. remaining_quantity를 total_quantity 값으로 복원.
+               4. trade_id를 새로운 값으로 갱신.
+           * 반환: 위 초기화가 모두 적용된 새로운 상태 딕셔너리(dict). ### 굳이 딕셔너리를 반환하지 말고 save_trade_state 나 set_trade_state_value 로 바로 수정하고 성공 여부만 리턴해.
+
+  2. `condition.py` 최적화 (단일 기본 조건 체크 함수 추가)
+
+  condition.py는 모든 의사 결정의 중심 역할을 유지하며, 더 명확한 구조를 갖습니다.
+
+   * 신규 함수 `check_basics()` 추가:
+       * 역할: 모든 거래 로직 실행 전, 반드시 통과해야 할 기본 조건들을 한 번에 묶어서 검사합니다.
+       * 처리 로직:
+           1. is_trading_hours()를 내부적으로 호출하여 거래 시간인지 확인합니다. (False이면 즉시 False 반환)
+           2. (향후 확장) API 접속 상태, 시장 개장 여부 등 다른 기본 조건을 이 함수에 쉽게 추가할 수 있습니다.
+       * 반환: 모든 기본 조건 통과 시 True, 하나라도 실패 시 False.
+   * `_process_active_forced_trade()` 최적화:
+       * 복잡한 평균 단가 계산 등을 직접 하는 대신, state.update_state_after_buy() 나
+         state.reset_state_for_auto_cycle()을 호출합니다.
+       * state 모듈로부터 새로운 상태 딕셔너리를 반환받은 후, state.save_trade_state()를 호출하여 파일에 최종
+         저장합니다.
+
+  3. `main_cmd.py` 역할 단순화 (최종안)
+
+  main_cmd.py는 condition.check_basics()를 호출하도록 수정하여 구조를 개선합니다.
+
+   * 수정 사항:
+       * main_loop() 최상단에서 개별 함수 대신 condition.check_basics()를 호출합니다.
+
+   1         # main_loop 안에서
+   2         if not condition.check_basics():
+   3             logging.info("기본 실행 조건(거래 시간 등)을 충족하지 않아 대기합니다.")
+   4             time.sleep(sleep_duration)
+   5             continue
+       * _initialize_trade_state 제거 및 state.init_trade_state 호출은 그대로 유지합니다.
+
+  이 수정된 계획으로 리팩토링을 진행하겠습니다.
