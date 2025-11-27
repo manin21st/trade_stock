@@ -21,6 +21,7 @@ import state
 
 import core_logic
 import strategy
+import trade # Add this line
 
 # 이 스크립트(condition.py)는 src 폴더 안에 있으므로, 상위 폴더가 프로젝트 루트가 됩니다.
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

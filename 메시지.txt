@@ -1,15 +1,27 @@
 (venv) root@s19a927c7bd5:~/trade_stock/src# python3 main_cmd.py
-[Program] 2025-11-27 13:07:41,450 - INFO - 자동매매 프로그램을 시작합니다.
-[Program] 2025-11-27 13:07:41,450 - INFO - 'paper' 모드 (svr=vps, env_dv=demo)로 인증 시도 중...
-[Program] 2025-11-27 13:07:41,451 - INFO - API 인증 성공.
-[Program] 2025-11-27 13:07:41,451 - INFO - 설정 파일에 강제 거래가 활성화되어 있습니다. 새로운 강제 거래 상태를 초기화합니다.
-[Program] 2025-11-27 13:07:41,452 - INFO - 자동매매 프로그램을 종료합니다.
+[Program] 2025-11-27 13:31:44,125 - INFO - 자동매매 프로그램을 시작합니다.
+[Program] 2025-11-27 13:31:44,126 - INFO - 'paper' 모드 (svr=vps, env_dv=demo)로 인증 시도 중...
+[Program] 2025-11-27 13:31:44,127 - INFO - API 인증 성공.
+[Program] 2025-11-27 13:31:44,127 - INFO - 설정 파일에 강제 거래가 활성화되어 있습니다. 새로운 강제 거래 상태를 초기화합니다.
+[Program] 2025-11-27 13:31:44,253 - INFO - Data fetch complete.
+[Program] 2025-11-27 13:31:44,555 - INFO - 초기 강제 거래: 종목 005930의 기존 보유 수량 40주, 평균 단가 98701.25원 반영.
+[#20251127133144] 2025-11-27 13:31:44,556 - INFO - 새로운 사이클 시작...
+Error Code : 500 | {"rt_cd":"1","msg_cd":"EGW00201","msg1":"초당 거래건수를 초과하였습니다."}
+Error Code : 500 | {"rt_cd":"1","msg_cd":"EGW00201","msg1":"초당 거래건수를 초과하였습니다."}
+URL: /uapi/domestic-stock/v1/trading/inquire-balance
+[#20251127133144] 2025-11-27 13:31:45,257 - INFO - [#20251127133144] 활성 강제 거래 처리 중: FORCED_20251127133144
+[#20251127133144] 2025-11-27 13:31:45,258 - INFO - 자동매매 프로그램을 종료합니다.
 Traceback (most recent call last):
-  File "/root/trade_stock/src/main_cmd.py", line 221, in <module>
-    _initialize_trade_state(config) # Call the new function once
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/root/trade_stock/src/main_cmd.py", line 107, in _initialize_trade_state
-    actual_balance = core_logic.get_stock_balance(stock_code_for_balance) # cycle_id는 필요 없음
-                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AttributeError: module 'core_logic' has no attribute 'get_stock_balance'
+  File "/root/trade_stock/src/main_cmd.py", line 223, in <module>
+    main_loop()
+  File "/root/trade_stock/src/main_cmd.py", line 166, in main_loop
+    action_to_take = condition.find_action_to_take(cycle_id, config)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/trade_stock/src/condition.py", line 507, in find_action_to_take
+    action = _process_active_forced_trade(cycle_id, config, trade_state, market_data)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/trade_stock/src/condition.py", line 366, in _process_active_forced_trade
+    trade_successful = trade.order_buy(cycle_id, stock_code, order_quantity, price, market) # state 인자 제거
+                       ^^^^^
+NameError: name 'trade' is not defined
 (venv) root@s19a927c7bd5:~/trade_stock/src#
