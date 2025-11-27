@@ -327,7 +327,13 @@ def _process_active_forced_trade(cycle_id, config, current_state, market_data):
     # --- 주문 수량 계산 ---
     order_quantity = 0
     if 'BUY' in current_phase:
-        if total_amount > 0 and total_quantity == 0: # 금액 기반
+        if total_quantity > 0: # 수량 기반 매수 우선
+            # 남은 수량을 분할 매수 (total_quantity와 remaining_quantity를 사용)
+            order_quantity = remaining_quantity if division_count <= 1 else remaining_quantity // max(1, (division_count - divisions_done))
+            if divisions_done == division_count - 1: order_quantity = remaining_quantity
+            
+        elif total_amount > 0: # 금액 기반 매수 (total_amount와 remaining_amount를 사용)
+            # 남은 금액을 분할 매수
             order_amount = remaining_amount if division_count <= 1 else remaining_amount // max(1, (division_count - divisions_done))
             if divisions_done == division_count - 1: order_amount = remaining_amount
             
@@ -339,10 +345,6 @@ def _process_active_forced_trade(cycle_id, config, current_state, market_data):
             order_quantity = order_amount // current_price
             if order_quantity == 0:
                 logging.warning("매수 가능액 부족 또는 현재가 과도하여 1주도 매수할 수 없습니다.")
-        
-        elif total_quantity > 0 and total_amount == 0: # 수량 기반
-            order_quantity = remaining_quantity if division_count <= 1 else remaining_quantity // max(1, (division_count - divisions_done))
-            if divisions_done == division_count - 1: order_quantity = remaining_quantity
 
     if order_quantity < 0: order_quantity = 0
 
