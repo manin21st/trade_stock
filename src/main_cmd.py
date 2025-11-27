@@ -102,23 +102,38 @@ def _initialize_trade_state(config):
 
     if forced_trade_config.get('enabled'):
         logging.info("설정 파일에 강제 거래가 활성화되어 있습니다. 새로운 강제 거래 상태를 초기화합니다.")
+        # 실제 보유 수량을 조회하여 반영
+        stock_code_for_balance = forced_trade_config.get('stock_code')
+        actual_balance = core_logic.get_stock_balance(stock_code_for_balance) # cycle_id는 필요 없음
+        
+        initial_bought_quantity = 0
+        initial_avg_buy_price = 0.0
+
+        if actual_balance and actual_balance.get('has_stock'):
+            # 실제 보유 수량과 평균 단가를 반영
+            initial_bought_quantity = actual_balance.get('quantity', 0)
+            initial_avg_buy_price = actual_balance.get('avg_buy_price', 0.0)
+            logging.info(f"초기 강제 거래: 종목 {stock_code_for_balance}의 기존 보유 수량 {initial_bought_quantity}주, 평균 단가 {initial_avg_buy_price}원 반영.")
+        else:
+            logging.info(f"초기 강제 거래: 종목 {stock_code_for_balance}의 기존 보유 수량이 없습니다.")
+            
         new_trade_state = {
             'active': True,
             'trade_id': f"FORCED_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
             'status': 'pending',
             'original_trade_type': forced_trade_config.get('trade_type', 'BUY'),
             'current_phase': 'BUYING' if forced_trade_config.get('trade_type', 'BUY') == 'AUTO' else forced_trade_config.get('trade_type', 'BUY'),
-            'stock_code': forced_trade_config.get('stock_code'),
+            'stock_code': stock_code_for_balance,
             'total_amount': forced_trade_config.get('amount', 0),
             'remaining_amount': forced_trade_config.get('amount', 0),
             'total_quantity': forced_trade_config.get('quantity', 0),
-            'remaining_quantity': forced_trade_config.get('quantity', 0),
+            'remaining_quantity': forced_trade_config.get('quantity', 0) - initial_bought_quantity, # 초기 보유 수량을 반영하여 남은 매수 수량 계산
             'price': forced_trade_config.get('price', 0),
             'market': forced_trade_config.get('market', 'KRX'),
             'division_count': forced_trade_config.get('division_count', 1),
             'divisions_done': 0,
-            'bought_quantity': 0,
-            'avg_buy_price': 0.0,
+            'bought_quantity': initial_bought_quantity,
+            'avg_buy_price': initial_avg_buy_price,
             'sell_profit_target_percent': forced_trade_config.get('sell_profit_target_percent', 0.5),
             'last_action_timestamp': datetime.datetime.now().isoformat()
         }
