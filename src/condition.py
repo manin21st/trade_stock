@@ -411,21 +411,22 @@ def _process_active_forced_trade(cycle_id, config, current_state, market_data):
                 action = {'type': 'SELL', 'stock_code': stock_code, 'quantity': sell_quantity, 'price': 0, 'market': market, 'strategy_name': 'FORCED_TRADE_AUTO_SELL', 'is_forced_trade': True}
                 
                 trade_successful = trade.order_sell(cycle_id, stock_code, sell_quantity, 0, market) # state 인자 제거
-                        if trade_successful:
-                            logging.info("AUTO 매도 주문 성공. 새로운 매수 사이클을 위해 상태를 재설정합니다.")
-                            
-                            # 상태 재설정: BUYING 단계로 전환하고 필요한 값 초기화
-                            current_state['current_phase'] = 'BUYING'
-                            current_state['divisions_done'] = 0
-                            current_state['bought_quantity'] = 0
-                            current_state['avg_buy_price'] = 0.0
-                            current_state['remaining_quantity'] = current_state['total_quantity'] # 목표 수량으로 초기화
-                            current_state['remaining_amount'] = current_state['total_amount'] # 목표 금액으로 초기화
-                            current_state['trade_id'] = f"AUTO_REPEATED_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}" # 새로운 거래 ID
-                            current_state['last_action_timestamp'] = datetime.datetime.now().isoformat()
-                            
-                            state.save_trade_state(current_state) # 재설정된 상태 저장
-                            return action                else:
+                if trade_successful:
+                    logging.info("AUTO 매도 주문 성공. 새로운 매수 사이클을 위해 상태를 재설정합니다.")
+                    
+                    # 상태 재설정: BUYING 단계로 전환하고 필요한 값 초기화
+                    current_state['current_phase'] = 'BUYING'
+                    current_state['divisions_done'] = 0
+                    current_state['bought_quantity'] = 0
+                    current_state['avg_buy_price'] = 0.0
+                    current_state['remaining_quantity'] = current_state['total_quantity'] # 목표 수량으로 초기화
+                    current_state['remaining_amount'] = current_state['total_amount'] # 목표 금액으로 초기화
+                    current_state['trade_id'] = f"AUTO_REPEATED_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}" # 새로운 거래 ID
+                    current_state['last_action_timestamp'] = datetime.datetime.now().isoformat()
+                    
+                    state.save_trade_state(current_state) # 재설정된 상태 저장
+                    return action
+                else:
                     logging.error("AUTO 매도 주문 실패. 상태를 유지하고 다음 사이클을 대기합니다.")
                     return {'status': 'forced_trade_handled'}
         else:
