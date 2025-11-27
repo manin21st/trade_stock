@@ -28,6 +28,7 @@ import simulation_logic as sl
 _is_authenticated = False
 _current_env_dv = None
 CONFIG_FILE_PATH = 'json/config.json'
+_api_call_timestamps = [] # API 호출 시간을 기록할 리스트
 
 # --- 내부 헬퍼 함수 ---
 def _load_config():
@@ -50,10 +51,31 @@ def suppress_external_logging():
 # --- 실제 API 호출 래퍼 ---
 def _call_kis_api(api_func, cycle_id, is_order=False, **kwargs):
     """KIS API 호출을 위한 범용 래퍼 함수입니다."""
-    global _is_authenticated, _current_env_dv
+    global _is_authenticated, _current_env_dv, _api_call_timestamps
     if not _is_authenticated or _current_env_dv is None:
         logging.error("API 호출 전 인증이 필요합니다.")
         return None, "인증 필요."
+
+    # API 호출 빈도 체크 및 제한 (초당 10건 제한)
+    current_time = time.time()
+    
+    # 지난 1초 동안의 호출만 남기고 제거
+    _api_call_timestamps = [t for t in _api_call_timestamps if current_time - t < 1]
+    _api_call_timestamps.append(current_time) # 현재 호출 추가
+    
+    call_count_last_second = len(_api_call_timestamps)
+    
+    # 초당 10건 초과 시 강제 지연
+    if call_count_last_second > 10:
+        logging.warning(f"API 호출 빈도 초과: 지난 1초간 {call_count_last_second}건 호출. (제한: 10건) 강제 지연 적용. 함수: {api_func.__name__}")
+        # 가장 오래된 호출 시점으로부터 1초가 되도록 기다림
+        time_to_wait = (_api_call_timestamps[0] + 1) - current_time 
+        if time_to_wait > 0:
+            time.sleep(time_to_wait)
+            # 대기 후 현재 시간 업데이트 및 불필요한 타임스탬프 정리
+            current_time = time.time()
+            _api_call_timestamps = [t for t in _api_call_timestamps if current_time - t < 1]
+            _api_call_timestamps.append(current_time) # 대기 후의 현재 호출 시간 다시 기록
 
     old_thread_local_cycle_id = getattr(thread_local, 'cycle_id', None)
     thread_local.cycle_id = cycle_id

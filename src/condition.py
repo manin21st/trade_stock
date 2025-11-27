@@ -506,10 +506,20 @@ def find_action_to_take(cycle_id, config):
     if (forced_trade_config.get('enabled') and trade_state.get('active')):
         logging.info("[%s] 활성 강제 거래 처리 중: %s", cycle_id, trade_state.get('trade_id', 'N/A'))
         action = _process_active_forced_trade(cycle_id, config, trade_state, market_data)
-        if action:
+        
+        # 강제 거래 로직이 어떤 행동을 결정했으면 (BUY/SELL) 그것을 바로 반환
+        if action and action.get('type') in ['BUY', 'SELL']:
             return action
         
-        return {'status': 'forced_trade_handled'}
+        # 강제 거래가 활성화되어 있지만, 현재 사이클에서 매매 action이 없었던 경우 (예: 대기 상태)
+        # 이 경우, 일반 규칙을 평가할 필요 없이 바로 함수 종료
+        # _process_active_forced_trade가 'forced_trade_handled'를 반환하면 이곳으로 오게 됩니다.
+        if action and action.get('status') == 'forced_trade_handled':
+            return action # 'forced_trade_handled' 상태를 그대로 main_cmd.py에 전달
+        
+        # 만약 강제 거래가 활성화되어 있지만, _process_active_forced_trade가 None을 반환한 경우 (예외 상황)
+        # 이 경우도 일반 규칙을 평가하지 않고 종료하는 것이 합리적입니다.
+        return None # 또는 {'status': 'no_action_in_forced_trade'}
 
     # 3. 일반 규칙 처리
     logging.debug("[%s] 일반 매매 규칙 평가 중...", cycle_id)
