@@ -56,26 +56,30 @@ def _call_kis_api(api_func, cycle_id, is_order=False, **kwargs):
         logging.error("API 호출 전 인증이 필요합니다.")
         return None, "인증 필요."
 
-    # API 호출 빈도 체크 및 제한 (초당 10건 제한)
-    current_time = time.time()
+    # --- 레이트 리미팅 로직 ---
+    # `time.time()`은 호출 시점의 시간을 반환. `append`는 실제 API 호출 시점에 가깝게
+    # 한 번만 수행되어야 함.
     
-    # 지난 1초 동안의 호출만 남기고 제거
-    _api_call_timestamps = [t for t in _api_call_timestamps if current_time - t < 1]
-    _api_call_timestamps.append(current_time) # 현재 호출 추가
+    # 1. 지난 1초 동안의 호출만 남기고 제거
+    _api_call_timestamps = [t for t in _api_call_timestamps if time.time() - t < 1]
     
-    call_count_last_second = len(_api_call_timestamps)
+    # 2. 현재 호출 포함하여 횟수 체크
+    call_count_last_second = len(_api_call_timestamps) + 1 # 현재 호출 포함
     
-    # 초당 10건 초과 시 강제 지연
+    # 3. 초당 10건 초과 시 강제 지연
+    enforced_delay = 0.0
     if call_count_last_second > 10:
         logging.warning(f"API 호출 빈도 초과: 지난 1초간 {call_count_last_second}건 호출. (제한: 10건) 강제 지연 적용. 함수: {api_func.__name__}")
-        # 가장 오래된 호출 시점으로부터 1초가 되도록 기다림
-        time_to_wait = (_api_call_timestamps[0] + 1) - current_time 
-        if time_to_wait > 0:
-            time.sleep(time_to_wait)
-            # 대기 후 현재 시간 업데이트 및 불필요한 타임스탬프 정리
-            current_time = time.time()
-            _api_call_timestamps = [t for t in _api_call_timestamps if current_time - t < 1]
-            _api_call_timestamps.append(current_time) # 대기 후의 현재 호출 시간 다시 기록
+        if len(_api_call_timestamps) > 0: 
+            time_to_wait = (_api_call_timestamps[0] + 1) - time.time() 
+            if time_to_wait > 0:
+                enforced_delay = time_to_wait
+                logging.debug(f"강제 지연: {enforced_delay:.3f}초. 함수: {api_func.__name__}")
+                time.sleep(enforced_delay)
+    
+    # --- 실제 API 호출 전 타임스탬프 기록 ---
+    # 모든 지연 로직이 완료된 후, 실제 API 호출 직전에 최종 시간 기록
+    _api_call_timestamps.append(time.time()) # 실제 API 호출 시점 기록
 
     old_thread_local_cycle_id = getattr(thread_local, 'cycle_id', None)
     thread_local.cycle_id = cycle_id
@@ -91,10 +95,8 @@ def _call_kis_api(api_func, cycle_id, is_order=False, **kwargs):
         result = None
     finally:
         thread_local.cycle_id = old_thread_local_cycle_id
-        # 사용자의 요청에 따라 API 호출 속도를 조절합니다.
-        # 주문(order)의 경우 0.1초, 그 외(조회)는 0.3초 대기합니다.
-        sleep_time = 0.1 if is_order else 0.3
-        time.sleep(sleep_time)
+        fixed_delay = 0.1 if is_order else 0.3
+        time.sleep(fixed_delay) # 고정 지연
         
     return result, error_message
 
