@@ -7,8 +7,3 @@ __pycache__/
 # Ignore user-specific files
 .vscode/
 kis_devlp.yaml
-
-# Ignore log files
-*.log
-error.log
-main_cmd.log

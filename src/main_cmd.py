@@ -23,6 +23,7 @@ import os
 import core_logic
 import condition
 import trade
+import state # New import for state management
 
 # 이 스크립트(main_cmd.py)는 src 폴더 안에 있으므로, 상위 폴더가 프로젝트 루트가 됩니다.
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -86,6 +87,52 @@ def _load_config():
     except Exception as e:
         logging.error(f"심각: {CONFIG_FILE} 파일을 로드하거나 파싱하는 데 실패했습니다: {e}")
         return None
+
+def _initialize_trade_state(config):
+    """
+    config.json 설정과 기존 `trade_state.json` 파일의 내용을 기반으로
+    애플리케이션의 초기 상태를 설정하고 저장합니다.
+    - `config.forced_trade.enabled`가 True인 경우, 강제 거래 설정을
+      `trade_state.json`에 반영하여 기존 상태를 덮어씁니다.
+    - 그 외의 경우, 기존 `trade_state.json` 상태를 유지하거나, 파일이 없는 경우
+      기본 비활성 상태로 초기화합니다.
+    """
+    current_app_state = state.load_trade_state() # 기존 상태 로드
+    forced_trade_config = config.get('forced_trade', {})
+
+    if forced_trade_config.get('enabled'):
+        logging.info("설정 파일에 강제 거래가 활성화되어 있습니다. 새로운 강제 거래 상태를 초기화합니다.")
+        new_trade_state = {
+            'active': True,
+            'trade_id': f"FORCED_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
+            'status': 'pending',
+            'original_trade_type': forced_trade_config.get('trade_type', 'BUY'),
+            'current_phase': 'BUYING' if forced_trade_config.get('trade_type', 'BUY') == 'AUTO' else forced_trade_config.get('trade_type', 'BUY'),
+            'stock_code': forced_trade_config.get('stock_code'),
+            'total_amount': forced_trade_config.get('amount', 0),
+            'remaining_amount': forced_trade_config.get('amount', 0),
+            'total_quantity': forced_trade_config.get('quantity', 0),
+            'remaining_quantity': forced_trade_config.get('quantity', 0),
+            'price': forced_trade_config.get('price', 0),
+            'market': forced_trade_config.get('market', 'KRX'),
+            'division_count': forced_trade_config.get('division_count', 1),
+            'divisions_done': 0,
+            'bought_quantity': 0,
+            'avg_buy_price': 0.0,
+            'sell_profit_target_percent': forced_trade_config.get('sell_profit_target_percent', 0.5),
+            'last_action_timestamp': datetime.datetime.now().isoformat()
+        }
+        state.save_trade_state(new_trade_state)
+    else:
+        # 강제 거래가 비활성화된 경우, 기존 상태를 유지하거나, active=False로 초기화 (새로운 상태라면)
+        if not current_app_state.get('active'):
+            logging.info("설정 파일에 강제 거래가 비활성화되어 있습니다. 기존 상태를 유지하거나, 초기 비활성 상태로 설정합니다.")
+            state.save_trade_state({'active': False})
+        else:
+            logging.info("설정 파일에 강제 거래가 비활성화되어 있지만, 활성 상태가 존재하여 이를 유지합니다.")
+            # 기존 활성 상태를 명시적으로 다시 저장하여 UI 등에 반영 (예: 'config.json'의 'forced_trade.enabled'를 false로 바꾸고 재시작 시)
+            state.save_trade_state(current_app_state)
+
 
 def main_loop():
     """자동매매 시스템의 메인 오케스트레이터 루프입니다."""
@@ -151,6 +198,13 @@ if __name__ == "__main__":
         logging.info("자동매매 프로그램을 시작합니다.")
         
         if core_logic.authenticate(cycle_id=None):
+            config = _load_config()
+            if not config:
+                logging.error("초기 설정 파일을 로드할 수 없습니다. 프로그램을 종료합니다.")
+                sys.exit(1)
+
+            _initialize_trade_state(config) # Call the new function once
+
             main_loop()
         else:
             logging.error("API 인증 실패. 프로그램을 종료합니다.")

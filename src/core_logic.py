@@ -48,7 +48,7 @@ def suppress_external_logging():
     logging.getLogger('domestic_stock_functions').setLevel(logging.CRITICAL)
 
 # --- 실제 API 호출 래퍼 ---
-def _call_kis_api(api_func, cycle_id, **kwargs):
+def _call_kis_api(api_func, cycle_id, is_order=False, **kwargs):
     """KIS API 호출을 위한 범용 래퍼 함수입니다."""
     global _is_authenticated, _current_env_dv
     if not _is_authenticated or _current_env_dv is None:
@@ -58,27 +58,22 @@ def _call_kis_api(api_func, cycle_id, **kwargs):
     old_thread_local_cycle_id = getattr(thread_local, 'cycle_id', None)
     thread_local.cycle_id = cycle_id
 
-    old_stdout = sys.stdout
-    redirected_output = io.StringIO()
-    sys.stdout = redirected_output
-
     result, error_message = None, None
     try:
         if 'env_dv' in api_func.__code__.co_varnames:
             kwargs['env_dv'] = _current_env_dv
         result = api_func(**kwargs)
-        captured_output = redirected_output.getvalue()
-        if captured_output:
-            logging.warning("API 호출 중 경고: %s (함수: %s)", captured_output.strip(), api_func.__name__)
     except Exception as e:
         error_message = f"API 함수({api_func.__name__}) 호출 중 예외 발생: {e}"
         logging.error(error_message)
         result = None
     finally:
-        sys.stdout = old_stdout
         thread_local.cycle_id = old_thread_local_cycle_id
-        ka.smart_sleep()
-        time.sleep(0.1)
+        # 사용자의 요청에 따라 API 호출 속도를 조절합니다.
+        # 주문(order)의 경우 0.1초, 그 외(조회)는 0.3초 대기합니다.
+        sleep_time = 0.1 if is_order else 0.3
+        time.sleep(sleep_time)
+        
     return result, error_message
 
 # --- 공용 API 함수 ---
@@ -171,21 +166,29 @@ def create_order(cycle_id, trade_type, stock_code, quantity, price, market="KRX"
         trenv = ka.getTREnv()
         ord_dv = 'buy' if trade_type == 'BUY' else 'sell'
         ord_dvsn = '01' if price == 0 else '00'
-        res_df, captured_err_output = _call_kis_api(order_cash, cycle_id, ord_dv=ord_dv, cano=trenv.my_acct, acnt_prdt_cd=trenv.my_prod, pdno=stock_code, ord_dvsn=ord_dvsn, ord_qty=str(quantity), ord_unpr=str(price), excg_id_dvsn_cd=market)
+        res_df, err_msg = _call_kis_api(order_cash, cycle_id, is_order=True, ord_dv=ord_dv, cano=trenv.my_acct, acnt_prdt_cd=trenv.my_prod, pdno=stock_code, ord_dvsn=ord_dvsn, ord_qty=str(quantity), ord_unpr=str(price), excg_id_dvsn_cd=market)
         
-        if captured_err_output:
-            logging.error("주문 API 호출 중 오류 발생: %s", captured_err_output)
+        if err_msg:
+            logging.error("주문 API 함수 호출 중 오류 발생: %s", err_msg)
             return False, None
 
         if res_df is not None and not res_df.empty:
+            # API 응답의 rt_cd가 '0'이 아니면 실패로 간주
+            if 'rt_cd' in res_df.columns and res_df['rt_cd'].iloc[0] != '0':
+                api_msg = res_df.get('msg1', pd.Series(['API 응답 메시지 없음']))[0]
+                msg_cd = res_df.get('msg_cd', pd.Series(['N/A']))[0]
+                logging.error("주문 실패: %s (rt_cd: %s, msg_cd: %s)", api_msg, res_df['rt_cd'].iloc[0], msg_cd)
+                return False, res_df
+            
+            # 성공 응답에서 주문번호(ODNO) 확인
             if 'ODNO' in res_df.columns and res_df['ODNO'].iloc[0]:
                 order_no = res_df['ODNO'].iloc[0]
-                logging.info("주문 성공: %s %s %s주 (가격: %s, 주문번호: %s)", trade_type, stock_code, quantity, "시장가" if price == 0 else f"{price:,}원", order_no)
+                logging.info("주문 요청 성공: %s %s %s주 (가격: %s, 주문번호: %s)", trade_type, stock_code, quantity, "시장가" if price == 0 else f"{price:,}원", order_no)
                 logging.debug("체결 여부 및 체결가는 별도 조회를 통해 확인해야 합니다.")
                 return True, res_df
             else:
-                api_msg = res_df.get('msg1', pd.Series(['API 응답 메시지 없음']))[0]
-                logging.error("주문 실패: %s", api_msg)
+                # rt_cd가 '0'이지만 주문번호가 없는 예외적인 경우
+                logging.error("주문 실패: API가 성공을 반환했으나 주문번호를 찾을 수 없습니다.")
                 return False, res_df
         else:
             logging.error("주문 실패: API로부터 유효한 응답을 받지 못했습니다.")
@@ -193,3 +196,4 @@ def create_order(cycle_id, trade_type, stock_code, quantity, price, market="KRX"
     except Exception as e:
         logging.error("주문 처리 중 예외 발생: %s", e)
         return False, None
+		

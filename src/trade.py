@@ -40,6 +40,7 @@ def order_buy(cycle_id, stock_code, quantity, price=0, market="KRX"):
         market=market
     )
     # create_order 내부에서 성공/실패 로깅이 이미 수행되므로 여기서는 추가 로깅 불필요.
+    # 상태 업데이트 로직은 condition.py에서 처리됩니다.
     return success
 
 def order_sell(cycle_id, stock_code, quantity, price=0, market="KRX"):
@@ -60,4 +61,5 @@ def order_sell(cycle_id, stock_code, quantity, price=0, market="KRX"):
         market=market
     )
     # create_order 내부에서 성공/실패 로깅이 이미 수행되므로 여기서는 추가 로깅 불필요.
+    # 상태 업데이트 로직은 condition.py에서 처리됩니다.
     return success
