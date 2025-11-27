@@ -1,17 +1,15 @@
-[trade_config]
-내용은 아래 3가지로 나눌수 있을거 같아.
-
- 1. 프로그램설정
-   - 시뮬레이션 모드, 트레이딩 모드, 거래시장(KRX/NXT), 루핑 주기(초) 등
-
- 2. 매매 조건
-   - 휴장여부, 거래시간, 미장상승률, 국장상승률, 목표수익률, 분할매매(횟수), 매수가능액(목표수익률 초과시 매도금액 포함) 등
-   - 종목선정 : 종목코드를 나열해서 지정하거나 자동선정을 선택. 자동선정인 경우는 별도 선정 로직 필요   
-
- 3. 매매 전략
-   -1. 강제매매전략 (명칭도 예약매매로 바꿔야 할 듯)
-     : 매매유형, 종목코드, 수량, 단가, 금액(또는 비중)
-
-   -2. 반반매매전략
-     : 매매유형, 종목코드, 수량, 단가, 금액(또는 비중)
-
+(venv) root@s19a927c7bd5:~/trade_stock/src# python3 main_cmd.py
+[Program] 2025-11-27 13:07:41,450 - INFO - 자동매매 프로그램을 시작합니다.
+[Program] 2025-11-27 13:07:41,450 - INFO - 'paper' 모드 (svr=vps, env_dv=demo)로 인증 시도 중...
+[Program] 2025-11-27 13:07:41,451 - INFO - API 인증 성공.
+[Program] 2025-11-27 13:07:41,451 - INFO - 설정 파일에 강제 거래가 활성화되어 있습니다. 새로운 강제 거래 상태를 초기화합니다.
+[Program] 2025-11-27 13:07:41,452 - INFO - 자동매매 프로그램을 종료합니다.
+Traceback (most recent call last):
+  File "/root/trade_stock/src/main_cmd.py", line 221, in <module>
+    _initialize_trade_state(config) # Call the new function once
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/trade_stock/src/main_cmd.py", line 107, in _initialize_trade_state
+    actual_balance = core_logic.get_stock_balance(stock_code_for_balance) # cycle_id는 필요 없음
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'core_logic' has no attribute 'get_stock_balance'
+(venv) root@s19a927c7bd5:~/trade_stock/src#

@@ -151,6 +151,35 @@ def get_balance(cycle_id):
         logging.error("계좌 잔고 조회 중 예외 발생: %s", e)
         return None, None
 
+def get_stock_balance(stock_code: str):
+    """
+    지정된 종목코드에 대한 보유 수량 및 평균 매입 단가를 조회합니다.
+    (main_cmd.py의 _initialize_trade_state에서 cycle_id 없이 호출될 수 있으므로,
+    cycle_id는 이 함수 내에서 새로 생성하거나 None으로 처리합니다.)
+    """
+    # get_stock_balance는 내부적으로 get_balance를 호출하며, 이 때 cycle_id가 필요합니다.
+    # main_cmd.py의 _initialize_trade_state에서는 cycle_id가 아직 생성되지 않았을 수 있으므로,
+    # 여기서는 임시 cycle_id를 사용하거나, 로그 시스템이 None을 처리하도록 합니다.
+    # 현재 logging 설정은 'Program'을 기본 cycle_id로 사용하므로 None을 전달합니다.
+    holdings_df, _ = get_balance(None) # cycle_id=None 전달
+
+    if holdings_df is not None and not holdings_df.empty:
+        # 'pdno' (상품번호, 종목코드) 컬럼으로 필터링
+        stock_holding = holdings_df[holdings_df['pdno'] == stock_code]
+        if not stock_holding.empty:
+            quantity = int(stock_holding['hldg_qty'].iloc[0]) # 보유 수량
+            avg_buy_price = float(stock_holding['pchs_avg_pric'].iloc[0]) # 평균 매입 단가
+            total_buy_amount = float(stock_holding['pchs_amt'].iloc[0]) # 매입 금액
+            
+            return {
+                "has_stock": True,
+                "quantity": quantity,
+                "avg_buy_price": avg_buy_price,
+                "total_buy_amount": total_buy_amount
+            }
+    
+    return {"has_stock": False, "quantity": 0, "avg_buy_price": 0.0, "total_buy_amount": 0.0}
+
 def create_order(cycle_id, trade_type, stock_code, quantity, price, market="KRX"):
     """주문 API를 사용하여 매수 또는 매도 주문을 생성합니다."""
     config = _load_config()
