@@ -349,7 +349,7 @@ def _process_active_forced_trade(cycle_id, current_state, market_data): # config
 
         action = {'type': 'BUY', 'stock_code': stock_code, 'quantity': order_quantity, 'price': price, 'market': market, 'strategy_name': 'FORCED_TRADE_AUTO_BUY', 'is_forced_trade': True}
         
-        trade_successful = trade.order_buy(cycle_id, **action)
+        trade_successful = trade.order_buy(cycle_id, stock_code=action['stock_code'], quantity=action['quantity'], price=action['price'], market=action['market'])
         if trade_successful:
             actual_buy_price = price if price != 0 else current_price # 시장가일 경우 현재가를 추정치로 사용
             state.update_trade_state_after_buy(current_state, order_quantity, actual_buy_price)
@@ -380,7 +380,7 @@ def _process_active_forced_trade(cycle_id, current_state, market_data): # config
 
                 action = {'type': 'SELL', 'stock_code': stock_code, 'quantity': sell_quantity, 'price': 0, 'market': market, 'strategy_name': 'FORCED_TRADE_AUTO_SELL', 'is_forced_trade': True}
                 
-                trade_successful = trade.order_sell(cycle_id, **action)
+                trade_successful = trade.order_sell(cycle_id, stock_code=action['stock_code'], quantity=action['quantity'], price=action['price'], market=action['market'])
                 if trade_successful:
                     state.reset_state_for_auto_cycle(current_state)
                     return action
@@ -420,9 +420,9 @@ def _process_active_forced_trade(cycle_id, current_state, market_data): # config
 
         trade_successful = False
         if action_type == 'BUY':
-            trade_successful = trade.order_buy(cycle_id, **action)
+            trade_successful = trade.order_buy(cycle_id, stock_code=action['stock_code'], quantity=action['quantity'], price=action['price'], market=action['market'])
         elif action_type == 'SELL':
-            trade_successful = trade.order_sell(cycle_id, **action)
+            trade_successful = trade.order_sell(cycle_id, stock_code=action['stock_code'], quantity=action['quantity'], price=action['price'], market=action['market'])
         
         if trade_successful:
             logging.info(f"단순 강제 거래 ({action_type}) 주문 성공. 상태 업데이트 진행.")
