@@ -24,49 +24,72 @@ def init_trade_state(config):
     config.json을 기반으로 `trade_state.json`을 초기화하거나 업데이트합니다.
     `main_cmd.py`에서 프로그램 시작 시 한 번만 호출됩니다.
     """
-    current_app_state = load_trade_state()
-    forced_trade_config = config.get('forced_trade', {})
+    # current_app_state = load_trade_state() # 이 시점에서는 항상 초기화되므로 이전 상태 로드는 불필요
 
-    if forced_trade_config.get('enabled'):
-        logging.info("강제 거래 활성화됨. 새로운 강제 거래 상태를 초기화합니다.")
-        stock_code = forced_trade_config.get('stock_code')
-        
-        # 실제 보유 수량을 조회하여 초기 상태에 반영
-        actual_balance = core_logic.get_stock_balance(stock_code)
-        init_qty = actual_balance.get('quantity', 0) if actual_balance else 0
-        init_avg_price = actual_balance.get('avg_buy_price', 0.0) if actual_balance else 0.0
-        
-        if init_qty > 0:
-            logging.info(f"초기 강제 거래: 종목 {stock_code}의 기존 보유 수량 {init_qty}주, 평균 단가 {init_avg_price}원 반영.")
-        
-        new_trade_state = {
-            'active': True,
-            'trade_id': f"FORCED_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
-            'status': 'pending',
-            'original_trade_type': forced_trade_config.get('trade_type', 'BUY'),
-            'current_phase': 'BUYING' if forced_trade_config.get('trade_type') == 'AUTO' else forced_trade_config.get('trade_type'),
-            'stock_code': stock_code,
-            'total_amount': forced_trade_config.get('amount', 0),
-            'remaining_amount': forced_trade_config.get('amount', 0),
-            'total_quantity': forced_trade_config.get('quantity', 0),
-            'remaining_quantity': forced_trade_config.get('quantity', 0) - init_qty,
-            'price': forced_trade_config.get('price', 0),
-            'market': forced_trade_config.get('market', 'KRX'),
-            'division_count': forced_trade_config.get('division_count', 1),
-            'divisions_done': 0,
-            'bought_quantity': init_qty,
-            'avg_buy_price': init_avg_price,
-            'sell_profit_target_percent': forced_trade_config.get('sell_profit_target_percent', 0.5),
-            'last_action_timestamp': datetime.datetime.now().isoformat()
-        }
-        return save_trade_state(new_trade_state)
-    else:
-        # 강제 거래가 비활성화된 경우, 기존 상태를 유지하거나, active=False로 초기화
-        if not current_app_state.get('active'):
-            return save_trade_state({'active': False})
-        else:
-            logging.info("강제 거래가 비활성화되었지만, 기존 활성 상태를 유지합니다.")
-            return save_trade_state(current_app_state)
+    # 1. config에서 활성 trading_rule 이름 가져오기
+    active_rule_name = config.get('trading_rule')
+    if not active_rule_name:
+        logging.info("활성 trading_rule이 config에 지정되지 않았습니다. 강제 매매를 비활성화합니다.")
+        return save_trade_state({'active': False})
+    
+    # 2. config의 rules 배열에서 해당 rule 찾기
+    active_rule_config = None
+    for rule in config.get('rules', []):
+        if rule.get('rule_name') == active_rule_name:
+            active_rule_config = rule
+            break
+    
+    if not active_rule_config:
+        logging.error(f"지정된 활성 규칙 '{active_rule_name}'을 config.json의 rules에서 찾을 수 없습니다. 강제 매매를 비활성화합니다.")
+        return save_trade_state({'active': False})
+
+    # 3. 활성 규칙의 enabled 플래그 확인 (규칙 자체를 비활성화할 경우)
+    if not active_rule_config.get('enabled', True):
+        logging.info(f"규칙 '{active_rule_name}'이(가) 비활성화되어 있습니다. 강제 매매를 비활성화합니다.")
+        return save_trade_state({'active': False})
+
+    # 4. active_rule_config에서 파라미터 추출 및 trade_state 초기화
+    logging.info(f"활성 규칙 '{active_rule_name}'으로 강제 매매 초기화 중...")
+    
+    # 규칙 파라미터에서 stock_code 가져오기. 없으면 기본 값 또는 오류 처리
+    stock_code = active_rule_config.get('stock_code')
+    if not stock_code:
+        logging.error(f"규칙 '{active_rule_name}'에 stock_code가 지정되지 않았습니다. 강제 매매를 비활성화합니다.")
+        return save_trade_state({'active': False})
+    
+    # 실제 보유 수량을 조회하여 초기 상태에 반영
+    actual_balance = core_logic.get_stock_balance(stock_code)
+    init_qty = actual_balance.get('quantity', 0) if actual_balance else 0
+    init_avg_price = actual_balance.get('avg_buy_price', 0.0) if actual_balance else 0.0
+    
+    if init_qty > 0:
+        logging.info(f"초기 강제 거래: 종목 {stock_code}의 기존 보유 수량 {init_qty}주, 평균 단가 {init_avg_price}원 반영.")
+    
+    # trade_state에 저장될 기본 파라미터 구성
+    rule_params = active_rule_config.get('params', active_rule_config) # 'params' 키 아래에 있을 수도 있고, rule 자체가 파라미터일 수도 있음
+    
+    new_trade_state = {
+        'active': True,
+        'trade_id': f"{active_rule_name}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
+        'status': 'pending',
+        'active_rule_name': active_rule_name, # 새로운 필드: 활성 규칙의 이름
+        'original_trade_type': rule_params.get('trade_type', 'AUTO'), # 기존 필드 재활용
+        'current_phase': 'BUYING' if rule_params.get('trade_type') == 'AUTO' else rule_params.get('trade_type'),
+        'stock_code': stock_code,
+        'total_amount': rule_params.get('amount', 0),
+        'remaining_amount': rule_params.get('amount', 0),
+        'total_quantity': rule_params.get('quantity', 0),
+        'remaining_quantity': rule_params.get('quantity', 0) - init_qty,
+        'price': rule_params.get('price', 0),
+        'market': config.get('trading_market', 'KRX'), # 최상위 trading_market 사용
+        'division_count': rule_params.get('division_count', 1),
+        'divisions_done': 0,
+        'bought_quantity': init_qty,
+        'avg_buy_price': init_avg_price,
+        'sell_profit_target_percent': rule_params.get('sell_profit_target_percent', 0.5),
+        'last_action_timestamp': datetime.datetime.now().isoformat()
+    }
+    return save_trade_state(new_trade_state)
 
 
 def load_trade_state():

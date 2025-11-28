@@ -62,7 +62,7 @@ def is_trading_hours(params, market='KRX', **kwargs):
 
     market_hours = {
         "KRX": (datetime.time(9, 0), datetime.time(15, 30)),
-        "NXT": (datetime.time(8, 0), datetime.time(18, 0)) # 예시 시간, 필요시 조정
+        "NXT": (datetime.time(8, 0), datetime.time(20, 0)) # 예시 시간, 필요시 조정
     }
     
     start_time, end_time = market_hours.get(market, market_hours["KRX"])
@@ -74,7 +74,7 @@ def is_trading_hours(params, market='KRX', **kwargs):
         logging.debug("조건 'is_trading_hours': 미충족 (%s 시장 %s-%s 외).", market, start_time.strftime('%H:%M'), end_time.strftime('%H:%M'))
         return False
 
-def check_basics():
+def check_basics(config):
     """
     모든 거래 로직 실행 전, 반드시 통과해야 할 기본 조건들을 한 번에 묶어서 검사합니다.
     - 현재는 거래 시간 확인만 포함됩니다.
@@ -82,8 +82,10 @@ def check_basics():
     
     :return: 모든 기본 조건 통과 시 True, 하나라도 실패 시 False
     """
-    # 현재는 KRX 시장만 체크, 필요시 config에서 시장 정보를 읽어오도록 확장 가능
-    if not is_trading_hours(params={'check_enabled': True}, market='KRX'):
+    # config에서 trading_market 정보 읽어오기
+    market_to_check = config.get('trading_market', 'KRX')
+
+    if not is_trading_hours(params={'check_enabled': True}, market=market_to_check):
         logging.info("기본 실행 조건: 거래 시간이 아닙니다.")
         return False
     
@@ -213,106 +215,48 @@ def _evaluate_conditions(cycle_id, stock_code, conditions_config, market_data, c
             
     return True
 
-# --- Process General Rules ---
-def _process_rules(cycle_id, config, market_data):
-    """`config.json`에 정의된 일반 매매 규칙들을 처리합니다."""
-    rules = config.get('rules', [])
-    if not rules:
-        logging.info("설정에 정의된 일반 규칙이 없습니다.")
-        return None
-
-    for rule in rules:
-        rule_name = rule.get('rule_name', 'Unnamed Rule')
-        logging.debug("규칙 평가 중: '%s'", rule_name)
-
-        conditions_config = rule.get('conditions', [])
-        strategy_config = rule.get('strategy', {})
-        
-        rule_stock_code = strategy_config.get('params', {}).get('stock_code')
-        if not rule_stock_code:
-            for cond in conditions_config:
-                if cond.get('params', {}).get('stock_code'):
-                    rule_stock_code = cond['params']['stock_code']
-                    break
-
-        if not rule_stock_code:
-            logging.warning("규칙 '%s'에 'stock_code'가 지정되지 않았습니다. 건너킵니다.", rule_name)
-            continue
-
-        if _evaluate_conditions(cycle_id, rule_stock_code, conditions_config, market_data, config): # config 인자 추가
-            logging.info("규칙 '%s'의 조건 충족. 전략 '%s' 실행.", rule_name, strategy_config.get('name', 'Unnamed Strategy'))
-            
-            strategy_func_name = strategy_config.get('name')
-            if not strategy_func_name:
-                logging.error("규칙 '%s'에 전략 'name'이 정의되지 않았습니다.", rule_name)
-                continue
-
-            strategy_func = getattr(strategy, strategy_func_name, None)
-            if not strategy_func:
-                logging.error("전략 함수 '%s'를 strategy.py에서 찾을 수 없습니다.", strategy_func_name)
-                continue
-            
-            # 전략 함수에 필요한 데이터 전달
-            strategy_kwargs = {
-                'cycle_id': cycle_id,
-                'params': strategy_config.get('params', {}),
-                'price_df': market_data.get('price_df', {}).get(rule_stock_code),
-                'holdings_df': market_data.get('holdings_df'),
-                'balance_df': market_data.get('balance_df')
-            }
-            sig = inspect.signature(strategy_func)
-            required_strategy_args = {p: strategy_kwargs[p] for p in sig.parameters if p in strategy_kwargs}
-
-            action = strategy_func(**required_strategy_args)
-            if action:
-                action['strategy_name'] = rule_name
-                return action
-        else:
-            logging.debug("규칙 '%s'의 조건이 충족되지 않았습니다.", rule_name)
-    
-    return None
-
 # --- Wait Cycle Check ---
-def is_wait_cycle(cycle_id, config):
+def is_wait_cycle(cycle_id, config): # config 인자는 여기서는 직접 사용 안될 수 있음. trade_state에 이미 다 있음.
     """
     실제 매매 로직을 실행하기 전, 단순히 대기만 해야 하는 사이클인지 가볍게 확인합니다.
-    - AUTO 매매의 매도 단계에서 수익률 미달성 시 대기하는 경우가 주요 대상입니다.
+    - 활성 규칙의 매도 단계에서 수익률 미달성 시 대기하는 경우가 주요 대상입니다.
     - 이 함수는 최소한의 API 호출(get_price)만 수행하며 로그를 남기지 않습니다.
     """
     active_trade_state = state.load_trade_state()
-    is_forced_trade_active = active_trade_state.get('active', False)
 
-    if not is_forced_trade_active:
+    # 1. 활성 상태가 아니면 대기 사이클이 아님
+    if not active_trade_state.get('active', False):
         return False
 
-    strategy_type = active_trade_state.get('original_trade_type')
-    current_phase = active_trade_state.get('current_phase')
+    # 2. trade_state에서 필요한 파라미터 가져오기
+    strategy_type = active_trade_state.get('original_trade_type') # 'AUTO', 'BUY', 'SELL'
+    current_phase = active_trade_state.get('current_phase') # 'BUYING', 'SELLING'
+    stock_code = active_trade_state.get('stock_code')
+    
+    # sell_profit_target_percent와 avg_buy_price는 매도 조건 판단에만 필요
+    sell_profit_target = active_trade_state.get('sell_profit_target_percent', 0.0)
+    avg_buy_price = active_trade_state.get('avg_buy_price', 0.0)
 
-    # AUTO 전략의 SELLING 단계일 때만 대기 여부 체크
+
+    # 3. 'AUTO' 전략의 'SELLING' 단계일 때만 대기 여부 체크
     if strategy_type == 'AUTO' and current_phase == 'SELLING':
-        stock_code = active_trade_state.get('stock_code')
-        
+        # stock_code가 없으면 오류이므로 대기 판단 불가 (아님)
+        if not stock_code:
+            return False 
+
         # 로그를 남기지 않고 현재가만 가볍게 조회
         price_df = core_logic.get_price(cycle_id, stock_code)
         
         if price_df is None or price_df.empty:
-            # 가격 조회가 안되면, 대기 여부 판단 불가 -> 일단 대기 사이클 아님으로 처리하여
-            # 이후 로직에서 오류 로그를 남기도록 유도 (혹은 다른 방식으로 처리)
+            # 가격 조회가 안되면, 대기 여부 판단 불가 -> 일단 대기 사이클 아님으로 처리
             return False 
 
         current_price = int(price_df['stck_prpr'].iloc[0])
-        avg_buy_price = active_trade_state.get('avg_buy_price', 0.0)
-        sell_profit_target = active_trade_state.get('sell_profit_target_percent', 0.0)
-
-        if avg_buy_price > 0:
+        
+        if avg_buy_price > 0: # 평균 매수 단가가 있어야 수익률 계산 가능
             current_profit_percent = ((current_price - avg_buy_price) / avg_buy_price) * 100
             if current_profit_percent < sell_profit_target:
                 return True # 목표 수익률 미달성이므로 대기 사이클 맞음
-
-    # 다른 전략에 대한 대기 조건 추가 예정
-    # elif strategy_type == 'NEW_STRATEGY_X':
-    #     # NEW_STRATEGY_X의 대기 조건 로직
-    #     pass
 
     return False # 그 외 모든 경우는 대기 사이클이 아님
 
@@ -472,88 +416,69 @@ def _get_simple_trade_action(current_state, market_data):
         'current_price': int(price_df['stck_prpr'].iloc[0]) if price_df is not None and not price_df.empty else 0
     }
 
-def _process_active_forced_trade(cycle_id, current_state, market_data):
-    """
-    진행 중인 강제 거래 상태에 따라 다음 매매 '결정'을 내리고 action을 반환합니다.
-    실제 주문은 이 함수에서 실행하지 않습니다.
-    """
-    trade_type = current_state.get('original_trade_type')
-    current_phase = current_state.get('current_phase')
-    stock_code = current_state.get('stock_code')
-
-    price_df = market_data.get('price_df', {}).get(stock_code)
-    if price_df is None or price_df.empty:
-        logging.error(f"강제거래: {stock_code}의 현재가를 가져올 수 없어 거래를 진행할 수 없습니다.")
-        return {'status': 'forced_trade_handled'}
-
-    current_price = int(price_df['stck_prpr'].iloc[0])
-    # 매수 시에만 현재가 0 체크
-    if current_price <= 0 and trade_type != 'SELL':
-        logging.error(f"강제거래: {stock_code}의 현재가가 0이하여서 수량을 계산할 수 없습니다.")
-        return {'status': 'forced_trade_handled'}
-
-    # --- AUTO 모드 ---
-    if trade_type == 'AUTO':
-        if current_phase == 'BUYING':
-            return _get_auto_buy_action(current_state, market_data)
-        elif current_phase == 'SELLING':
-            return _get_auto_sell_action(current_state, market_data)
-          
-    # --- 단순 BUY/SELL 모드 ---
-    elif trade_type in ['BUY', 'SELL']:
-        return _get_simple_trade_action(current_state, market_data)
-
-    logging.warning("알 수 없는 강제 거래 타입(%s) 또는 단계(%s)입니다.", trade_type, current_phase)
-    return None # 처리할 수 없는 타입
-
 def find_action_to_take(cycle_id, config):
     """
-    현재 매매 사이클에서 취할 행동을 '결정'하고, 사용된 시장 데이터와 함께 반환합니다.
-    - 필요한 모든 시장 데이터를 한 번에 조회합니다.
-    - 강제 거래, 일반 규칙 순으로 평가하여 가장 먼저 조건에 맞는 action을 반환합니다.
-    - 실제 거래 실행은 하지 않습니다.
+    현재 매매 사이클에서 활성 전략(`active_rule_name`)에 따라 취할 행동을 '결정'하고,
+    사용된 시장 데이터와 함께 반환합니다. 실제 거래 실행은 하지 않습니다.
     """
     logging.debug("[%s] 매매 행동 결정 시작...", cycle_id)
     
     active_trade_state = state.load_trade_state()
-    is_forced_trade_active = active_trade_state.get('active', False)
 
-    # 1. 필요한 모든 종목 코드 수집
-    all_stock_codes = set()
-    if is_forced_trade_active:
-        all_stock_codes.add(active_trade_state.get('stock_code'))
+    # 1. 활성 전략이 없거나 비활성화되어 있으면 할 일 없음
+    if not active_trade_state.get('active', False):
+        logging.debug("[%s] 활성 매매 전략이 없습니다.", cycle_id)
+        return None, {'price_df': {}, 'holdings_df': None, 'balance_df': None}
 
-    for rule in config.get('rules', []):
-        strategy_stock_code = rule.get('strategy', {}).get('params', {}).get('stock_code')
-        if strategy_stock_code:
-            all_stock_codes.add(strategy_stock_code)
-        for cond in rule.get('conditions', []):
-            cond_stock_code = cond.get('params', {}).get('stock_code')
-            if cond_stock_code:
-                all_stock_codes.add(cond_stock_code)
-    all_stock_codes.discard(None)
+    # 2. 활성 전략의 파라미터 가져오기
+    active_rule_name = active_trade_state.get('active_rule_name')
+    trade_type = active_trade_state.get('original_trade_type') # 'AUTO', 'BUY', 'SELL'
+    current_phase = active_trade_state.get('current_phase') # 'BUYING', 'SELLING'
+    stock_code = active_trade_state.get('stock_code')
 
-    # 2. 모든 데이터 한 번에 조회
+    # 3. 필요한 모든 종목 코드 수집 (현재는 활성 전략의 종목만 해당)
+    all_stock_codes = {stock_code}
+    all_stock_codes.discard(None) # Set for single stock
+
+    # 4. 모든 데이터 한 번에 조회
     market_data = {'price_df': {}, 'holdings_df': None, 'balance_df': None}
-    if not all_stock_codes:
-        logging.debug("평가할 종목이 없어 잔고 정보만 조회합니다.")
-        market_data['holdings_df'], market_data['balance_df'] = core_logic.get_balance(cycle_id)
-    else:
-        market_data['holdings_df'], market_data['balance_df'] = core_logic.get_balance(cycle_id)
-        for code in all_stock_codes:
-            market_data['price_df'][code] = core_logic.get_price(cycle_id, code)
+    
+    market_data['holdings_df'], market_data['balance_df'] = core_logic.get_balance(cycle_id)
+    if stock_code: # 종목 코드가 있으면 시세 조회
+        market_data['price_df'][stock_code] = core_logic.get_price(cycle_id, stock_code)
 
-    # 3. 강제 거래 처리 (우선순위 높음)
-    if is_forced_trade_active:
-        # logging.info("[%s] 활성 강제 거래를 평가합니다.", cycle_id) # 삭제됨
-        action = _process_active_forced_trade(cycle_id, active_trade_state, market_data)
-        if action: # action이 None이 아니면 반환 (대기 상태 포함)
-            return action, market_data
+    # 5. 활성 전략에 따른 매매 행동 결정 로직 수행
+    # 기존 _process_active_forced_trade 로직을 여기에 통합
+    
+    # 공통 예외 처리 (가격 데이터 없음 등)
+    price_df = market_data.get('price_df', {}).get(stock_code)
+    if price_df is None or price_df.empty:
+        logging.error(f"강제거래: {stock_code}의 현재가를 가져올 수 없어 거래를 진행할 수 없습니다.")
+        return {'status': 'forced_trade_handled'}, market_data # 오류 상태 반환
 
-    # 4. 일반 규칙 처리 (강제 거래가 없을 때만 실행)
-    logging.debug("[%s] 일반 매매 규칙 평가 중...", cycle_id)
-    action = _process_rules(cycle_id, config, market_data)
+    current_price = int(price_df['stck_prpr'].iloc[0])
+    if current_price <= 0 and trade_type != 'SELL':
+        logging.error(f"강제거래: {stock_code}의 현재가가 0이하여서 수량을 계산할 수 없습니다.")
+        return {'status': 'forced_trade_handled'}, market_data
+
+    # --- AUTO 모드 ---
+    if trade_type == 'AUTO':
+        if current_phase == 'BUYING':
+            action = _get_auto_buy_action(active_trade_state, market_data)
+        elif current_phase == 'SELLING':
+            action = _get_auto_sell_action(active_trade_state, market_data)
+        else: # 알 수 없는 페이즈
+            logging.warning("알 수 없는 강제 거래 페이즈(%s)입니다. 규칙: %s", current_phase, active_rule_name)
+            action = None
+    # --- 단순 BUY/SELL 모드 ---
+    elif trade_type in ['BUY', 'SELL']:
+        action = _get_simple_trade_action(active_trade_state, market_data)
+    else: # 알 수 없는 매매 타입
+        logging.warning("알 수 없는 강제 거래 타입(%s)입니다. 규칙: %s", strategy_type, active_rule_name)
+        action = None
+    
     if action:
+        action['strategy_name'] = active_rule_name # 기존 필드 재활용
         return action, market_data
 
     logging.debug("[%s] 이번 사이클에 취할 매매 행동이 없습니다.", cycle_id)

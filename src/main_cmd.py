@@ -88,18 +88,16 @@ def _load_config():
         logging.error(f"심각: {CONFIG_FILE} 파일을 로드하거나 파싱하는 데 실패했습니다: {e}")
         return None
 
-def main_loop():
+def main_loop(config):
     """자동매매 시스템의 메인 오케스트레이터 루프입니다."""
     while True:
         cycle_id = f"#{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
         thread_local.cycle_id = cycle_id
 
-        config = _load_config()
-        if not config:
-            logging.error("설정 파일을 로드할 수 없습니다. 60초 후 재시도합니다.")
-            time.sleep(60)
-            continue
-        
+        if not config: # 초기 로드된 config가 유효하지 않을 경우만 처리
+            logging.error("초기 설정 파일이 로드되지 않았습니다. 프로그램 종료 또는 재시작이 필요합니다.")
+            sys.exit(1) # 프로그램 시작 시 이미 체크되었겠지만, 혹시 모를 경우를 위해
+
         sleep_duration = config.get('loop_interval_seconds', 60)
 
         # 1. 매매 로직 실행 전, 대기 사이클인지 먼저 확인 (로그 생성 안함)
@@ -108,10 +106,8 @@ def main_loop():
             time.sleep(sleep_duration)
             continue # 대기 사이클이면 여기서 바로 다음 루프로 넘어감 (로그 생성 안됨)
 
-        # 2. 대기 사이클이 아니면, 본격적인 로직과 로그 기록 시작
-        
-        # 기본 조건 체크 (거래 시간 등)
-        if not condition.check_basics():
+        # 2. 기본 조건 체크 (거래 시간 등)
+        if not condition.check_basics(config):
             logging.info("기본 실행 조건(거래 시간 등)을 충족하지 않아 대기합니다.")
             thread_local.cycle_id = None
             time.sleep(sleep_duration)
@@ -155,7 +151,8 @@ def main_loop():
                 # 5. 거래 성공 시 상태 업데이트
                 if trade_successful:
                     current_state = state.load_trade_state()
-                    if action_to_take.get('is_forced_trade'):
+                    # 이 부분에서 current_state를 직접 사용하는 로직은 향후 리팩토링될 수 있음
+                    if action_to_take.get('is_forced_trade'): # 임시로 기존 로직 유지
                         if action_type == 'BUY':
                             buy_price = action_to_take.get('price', 0)
                             if buy_price == 0: # 시장가 매수
@@ -171,7 +168,6 @@ def main_loop():
         else:
             logging.debug("이번 사이클에서는 실행할 거래가 없습니다.") # INFO -> DEBUG
 
-        # logging.debug("새로운 사이클을 시작합니다. %s초 후 재시도합니다.\n", sleep_duration) # 삭제됨
         thread_local.cycle_id = None
         time.sleep(sleep_duration)
 
@@ -190,7 +186,7 @@ if __name__ == "__main__":
 
             state.init_trade_state(config) # Call the new function once
 
-            main_loop()
+            main_loop(config)
         else:
             logging.error("API 인증 실패. 프로그램을 종료합니다.")
             sys.exit(1)
