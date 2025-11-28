@@ -13,22 +13,25 @@ import logging
 import json
 import time
 import pandas as pd
-import io
 from main_cmd import thread_local
 
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'open-trading-api', 'examples_user'))
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'open-trading-api', 'examples_user', 'domestic_stock'))
 
 import kis_auth as ka
-from domestic_stock_functions import inquire_price, inquire_balance, inquire_daily_itemchartprice, order_cash
+from domestic_stock_functions import inquire_price, inquire_balance, order_cash
 
 import simulation_logic as sl
+
 
 # --- 전역 변수 및 상수 ---
 _is_authenticated = False
 _current_env_dv = None
+_last_api_call_time = 0  # 마지막 API 호출 시간을 기록할 변수
+
 CONFIG_FILE_PATH = 'json/config.json'
-_api_call_timestamps = [] # API 호출 시간을 기록할 리스트
+MIN_API_INTERVAL = 0.4  # API 호출 사이의 최소 간격 (초)
+
 
 # --- 내부 헬퍼 함수 ---
 def _load_config():
@@ -49,37 +52,22 @@ def suppress_external_logging():
     logging.getLogger('domestic_stock_functions').setLevel(logging.CRITICAL)
 
 # --- 실제 API 호출 래퍼 ---
-def _call_kis_api(api_func, cycle_id, is_order=False, **kwargs):
+def _call_kis_api(api_func, cycle_id, **kwargs):
     """KIS API 호출을 위한 범용 래퍼 함수입니다."""
-    global _is_authenticated, _current_env_dv, _api_call_timestamps
+    global _is_authenticated, _current_env_dv, _last_api_call_time
     if not _is_authenticated or _current_env_dv is None:
         logging.error("API 호출 전 인증이 필요합니다.")
         return None, "인증 필요."
 
-    # --- 레이트 리미팅 로직 ---
-    # `time.time()`은 호출 시점의 시간을 반환. `append`는 실제 API 호출 시점에 가깝게
-    # 한 번만 수행되어야 함.
+    # --- 단순화된 레이트 리미팅 로직 ---
+    now = time.time()
+    elapsed_since_last_call = now - _last_api_call_time
+    if elapsed_since_last_call < MIN_API_INTERVAL:
+        time_to_wait = MIN_API_INTERVAL - elapsed_since_last_call
+        logging.debug(f"API 호출 간격({elapsed_since_last_call:.3f}s)이 너무 짧아 {time_to_wait:.3f}초 대기합니다. 함수: {api_func.__name__}")
+        time.sleep(time_to_wait)
     
-    # 1. 지난 1초 동안의 호출만 남기고 제거
-    _api_call_timestamps = [t for t in _api_call_timestamps if time.time() - t < 1]
-    
-    # 2. 현재 호출 포함하여 횟수 체크
-    call_count_last_second = len(_api_call_timestamps) + 1 # 현재 호출 포함
-    
-    # 3. 초당 10건 초과 시 강제 지연
-    enforced_delay = 0.0
-    if call_count_last_second > 10:
-        logging.warning(f"API 호출 빈도 초과: 지난 1초간 {call_count_last_second}건 호출. (제한: 10건) 강제 지연 적용. 함수: {api_func.__name__}")
-        if len(_api_call_timestamps) > 0: 
-            time_to_wait = (_api_call_timestamps[0] + 1) - time.time() 
-            if time_to_wait > 0:
-                enforced_delay = time_to_wait
-                logging.debug(f"강제 지연: {enforced_delay:.3f}초. 함수: {api_func.__name__}")
-                time.sleep(enforced_delay)
-    
-    # --- 실제 API 호출 전 타임스탬프 기록 ---
-    # 모든 지연 로직이 완료된 후, 실제 API 호출 직전에 최종 시간 기록
-    _api_call_timestamps.append(time.time()) # 실제 API 호출 시점 기록
+    _last_api_call_time = time.time() # 실제 호출 직전 시간 기록
 
     old_thread_local_cycle_id = getattr(thread_local, 'cycle_id', None)
     thread_local.cycle_id = cycle_id
@@ -95,8 +83,6 @@ def _call_kis_api(api_func, cycle_id, is_order=False, **kwargs):
         result = None
     finally:
         thread_local.cycle_id = old_thread_local_cycle_id
-        fixed_delay = 0.1 if is_order else 0.3
-        time.sleep(fixed_delay) # 고정 지연
         
     return result, error_message
 
@@ -219,7 +205,7 @@ def create_order(cycle_id, trade_type, stock_code, quantity, price, market="KRX"
         trenv = ka.getTREnv()
         ord_dv = 'buy' if trade_type == 'BUY' else 'sell'
         ord_dvsn = '01' if price == 0 else '00'
-        res_df, err_msg = _call_kis_api(order_cash, cycle_id, is_order=True, ord_dv=ord_dv, cano=trenv.my_acct, acnt_prdt_cd=trenv.my_prod, pdno=stock_code, ord_dvsn=ord_dvsn, ord_qty=str(quantity), ord_unpr=str(price), excg_id_dvsn_cd=market)
+        res_df, err_msg = _call_kis_api(order_cash, cycle_id, ord_dv=ord_dv, cano=trenv.my_acct, acnt_prdt_cd=trenv.my_prod, pdno=stock_code, ord_dvsn=ord_dvsn, ord_qty=str(quantity), ord_unpr=str(price), excg_id_dvsn_cd=market)
         
         if err_msg:
             logging.error("주문 API 함수 호출 중 오류 발생: %s", err_msg)

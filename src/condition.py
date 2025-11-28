@@ -20,8 +20,7 @@ import inspect
 import state
 
 import core_logic
-import strategy
-import trade 
+import strategy 
 
 # 이 스크립트(condition.py)는 src 폴더 안에 있으므로, 상위 폴더가 프로젝트 루트가 됩니다.
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -42,15 +41,6 @@ def _get_stock_sellable_quantity(stock_code, holdings_df):
         holding = holdings_df[holdings_df['pdno'] == stock_code]
         if not holding.empty:
             return int(holding['ord_psbl_qty'].iloc[0])
-        
-    return 0
-
-def _get_stock_current_value(stock_code, holdings_df):
-    """특정 종목의 현재 평가액을 조회합니다."""
-    if holdings_df is not None and not holdings_df.empty and 'pdno' in holdings_df.columns: # FIX: 'not in' -> 'in'
-        holding = holdings_df[holdings_df['pdno'] == stock_code]
-        if not holding.empty:
-            return int(holding['evlu_amt'].iloc[0])
         
     return 0
 
