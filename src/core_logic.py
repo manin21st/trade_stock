@@ -30,7 +30,7 @@ _current_env_dv = None
 _last_api_call_time = 0  # 마지막 API 호출 시간을 기록할 변수
 
 CONFIG_FILE_PATH = 'json/config.json'
-MIN_API_INTERVAL = 0.4  # API 호출 사이의 최소 간격 (초)
+MIN_API_INTERVAL = 0.6  # API 호출 사이의 최소 간격 (초)
 
 
 # --- 내부 헬퍼 함수 ---
@@ -129,7 +129,7 @@ def get_price(cycle_id, stock_code: str):
     if df_price is None or df_price.empty:
         logging.warning("%s에 대한 시세 데이터가 반환되지 않았습니다.", stock_code)
         return None
-    logging.debug("시세 조회가 완료되었습니다.")
+    # logging.debug("시세 조회가 완료되었습니다.") # 삭제됨
     return df_price
 
 def get_balance(cycle_id):
@@ -155,7 +155,7 @@ def get_balance(cycle_id):
             return None, None
         df1 = balance_data[0] if isinstance(balance_data, tuple) and len(balance_data) > 0 else pd.DataFrame()
         df2 = balance_data[1] if isinstance(balance_data, tuple) and len(balance_data) > 1 else pd.DataFrame()
-        logging.debug("계좌 잔고 조회가 완료되었습니다.")
+        # logging.debug("계좌 잔고 조회가 완료되었습니다.") # 삭제됨
         return df1, df2
     except Exception as e:
         logging.error("계좌 잔고 조회 중 예외 발생: %s", e)

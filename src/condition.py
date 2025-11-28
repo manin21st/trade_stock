@@ -545,7 +545,7 @@ def find_action_to_take(cycle_id, config):
 
     # 3. 강제 거래 처리 (우선순위 높음)
     if is_forced_trade_active:
-        logging.info("[%s] 활성 강제 거래를 평가합니다.", cycle_id)
+        # logging.info("[%s] 활성 강제 거래를 평가합니다.", cycle_id) # 삭제됨
         action = _process_active_forced_trade(cycle_id, active_trade_state, market_data)
         if action: # action이 None이 아니면 반환 (대기 상태 포함)
             return action, market_data

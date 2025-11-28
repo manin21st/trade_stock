@@ -66,7 +66,7 @@ def setup_logging():
     logger.addFilter(CycleIdFilter())
     formatter = CustomFormatter('[%(cycle_id)s] %(asctime)s - %(levelname)s - %(message)s')
     
-    file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8', mode='a')
+    file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8', mode='w')
     file_handler.setFormatter(formatter)
     # 파일 핸들러는 DEBUG 레벨부터 모든 로그를 기록
     file_handler.setLevel(logging.DEBUG)
@@ -109,7 +109,6 @@ def main_loop():
             continue # 대기 사이클이면 여기서 바로 다음 루프로 넘어감 (로그 생성 안됨)
 
         # 2. 대기 사이클이 아니면, 본격적인 로직과 로그 기록 시작
-        logging.debug("새로운 사이클 시작...") # INFO -> DEBUG
         
         # 기본 조건 체크 (거래 시간 등)
         if not condition.check_basics():
@@ -172,7 +171,7 @@ def main_loop():
         else:
             logging.debug("이번 사이클에서는 실행할 거래가 없습니다.") # INFO -> DEBUG
 
-        logging.debug("새로운 사이클을 시작합니다. %s초 후 재시도합니다.\n", sleep_duration) # INFO -> DEBUG
+        # logging.debug("새로운 사이클을 시작합니다. %s초 후 재시도합니다.\n", sleep_duration) # 삭제됨
         thread_local.cycle_id = None
         time.sleep(sleep_duration)
 
