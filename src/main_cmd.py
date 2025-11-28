@@ -104,41 +104,62 @@ def main_loop():
         # 기본 조건 체크 (거래 시간 등)
         if not condition.check_basics():
             logging.info("기본 실행 조건(거래 시간 등)을 충족하지 않아 대기합니다.")
-            time.sleep(config.get('loop_interval_seconds', 60)) # check_basics에서 대기 시간이 필요할 수 있으므로, 설정된 간격만큼 대기
+            time.sleep(config.get('loop_interval_seconds', 60))
             continue
 
         sleep_duration = config.get('loop_interval_seconds', 60)
-        action_to_take = condition.find_action_to_take(cycle_id, config)
+        
+        # 1. 매매 결정 (API 조회 포함)
+        # find_action_to_take은 market_data를 내부적으로 조회하고 action을 결정해서 반환합니다.
+        action_to_take, market_data = condition.find_action_to_take(cycle_id, config)
 
+        # 2. 결정에 따른 거래 실행 및 상태 업데이트
         if action_to_take:
             action_type = action_to_take.get('type')
             
-            # 'type' 키가 있는 경우에만 거래 로직 실행
             if action_type in ['BUY', 'SELL']:
-                stock_code = action_to_take.get('stock_code')
-                strategy_name = action_to_take.get('strategy_name')
+                logging.info("%s 결정 (전략: '%s')", action_type, action_to_take.get('strategy_name'))
+                
                 trade_successful = False
+                trade_result = None
 
-                logging.info("%s 결정 (전략: '%s')", action_type, strategy_name)
+                # API 중복 호출 방지를 위해 조회해 둔 balance_df 전달
+                balance_df = market_data.get('balance_df')
 
                 if action_type == 'BUY':
-                    trade_successful = trade.order_buy(
-                        cycle_id, stock_code, 
-                        quantity=action_to_take.get('quantity'), 
+                    trade_successful, trade_result = trade.order_buy(
+                        cycle_id,
+                        stock_code=action_to_take['stock_code'], 
+                        quantity=action_to_take['quantity'], 
                         price=action_to_take.get('price', 0), 
-                        market=action_to_take.get('market', "KRX")
+                        market=action_to_take.get('market', "KRX"),
+                        balance_df=balance_df
                     )
                 elif action_type == 'SELL':
-                    trade_successful = trade.order_sell(
-                        cycle_id, stock_code, 
-                        quantity=action_to_take.get('quantity'), 
-                        price=action_to_take.get('price', 0), 
-                        market=action_to_take.get('market', "KRX")
+                    trade_successful, trade_result = trade.order_sell(
+                        cycle_id,
+                        stock_code=action_to_take['stock_code'],
+                        quantity=action_to_take['quantity'],
+                        price=action_to_take.get('price', 0),
+                        market=action_to_take.get('market', "KRX"),
+                        balance_df=balance_df
                     )
-                
-                # 최종 결과 로깅은 core_logic의 create_order에서 상세히 하므로 여기서는 생략
-                if action_to_take.get('is_forced_trade', False):
-                    logging.debug("강제 거래 명령이 처리되었습니다.")
+
+                # 3. 거래 성공 시 상태 업데이트
+                if trade_successful:
+                    current_state = state.load_trade_state()
+                    if action_to_take.get('is_forced_trade'):
+                        if action_type == 'BUY':
+                            buy_price = action_to_take.get('price', 0)
+                            if buy_price == 0: # 시장가 매수
+                                buy_price = action_to_take.get('current_price', 0)
+                            state.update_trade_state_after_buy(current_state, action_to_take['quantity'], buy_price)
+                        
+                        elif action_type == 'SELL':
+                            if current_state.get('original_trade_type') == 'AUTO':
+                                state.reset_state_for_auto_cycle(current_state)
+                            else: # 단순 강제 매도
+                                state.save_trade_state({'active': False}) # 거래 비활성화
 
             elif action_to_take.get('status') == 'forced_trade_handled':
                 logging.info("강제 거래 로직에 의해 이번 사이클은 대기합니다.")

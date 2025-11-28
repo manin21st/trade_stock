@@ -282,240 +282,245 @@ def _process_rules(cycle_id, config, market_data):
     
     return None
 
-# --- Process Active Forced Trade (State Machine for AUTO/Divisional) ---
-def _process_active_forced_trade(cycle_id, current_state, market_data): # config 인자 제거
+# --- Process Active Forced Trade (Refactored) ---
+def _calculate_order_quantity(current_state, current_price, available_cash):
     """
-    진행 중인 강제 거래 상태를 처리하고 다음 매매 행동을 결정합니다.
-    상태 계산 및 저장은 state 모듈에 위임합니다.
+    매수 주문에 필요한 수량을 계산합니다. (분할 매수 지원)
+    수량 또는 금액 기준에 따라 계산하며, 매수 가능액을 초과하지 않도록 조정합니다.
     """
-    trade_type = current_state['original_trade_type']
-    current_phase = current_state['current_phase']
+
+    # 수량 기반 매수 우선
+    if current_state.get('total_quantity', 0) > 0:
+        rem_qty = current_state.get('remaining_quantity', 0)
+        div_count = current_state.get('division_count', 1)
+        div_done = current_state.get('divisions_done', 0)
+        
+        # 마지막 분할이면 남은 수량 전부, 아니면 계산된 수량
+        if div_done >= div_count - 1:
+            return rem_qty
+
+        return rem_qty // max(1, (div_count - div_done))
+
+    # 금액 기반 매수
+    if current_state.get('total_amount', 0) > 0:
+        rem_amt = current_state.get('remaining_amount', 0)
+        div_count = current_state.get('division_count', 1)
+        div_done = current_state.get('divisions_done', 0)
+
+        # 마지막 분할이면 남은 금액 전부, 아니면 계산된 금액
+        order_amount = 0
+        if div_done >= div_count - 1:
+            order_amount = rem_amt
+        else:
+            order_amount = rem_amt // max(1, (div_count - div_done))
+
+        if order_amount > available_cash:
+            logging.warning(f"매수 희망 금액({order_amount:,}원)이 매수 가능액({available_cash:,}원)을 초과하여 가능액으로 조정합니다.")
+            order_amount = available_cash
+
+        if current_price > 0:
+            return order_amount // current_price
+        else:
+            logging.error("현재가가 0이하여서 수량을 계산할 수 없습니다.")
+            return 0
+
+    return 0
+
+
+def _get_auto_buy_action(current_state, market_data):
+    """AUTO 모드의 매수 단계를 처리하고 매수 action을 결정합니다."""
     stock_code = current_state['stock_code']
-    market = current_state.get('market', "KRX")
-    price = current_state.get('price', 0) # 지정가. 0이면 시장가.
-    
     price_df = market_data.get('price_df', {}).get(stock_code)
-    holdings_df = market_data.get('holdings_df')
     balance_df = market_data.get('balance_df')
 
+    # 목표 수량 달성 시 매도 단계로 전환
+    if current_state.get('remaining_quantity', 0) <= 0 and current_state.get('total_quantity', 0) > 0:
+        logging.info("AUTO 매매: 목표 수량을 이미 보유하고 있거나 초과하여 매수 단계를 건너뜁니다.")
+        state.set_trade_state_value('current_phase', 'SELLING')
+        return {'status': 'forced_trade_handled'}
+
+    current_price = int(price_df['stck_prpr'].iloc[0])
+    available_cash = _get_available_buy_cash(balance_df)
+
+    order_quantity = _calculate_order_quantity(current_state, current_price, available_cash)
+    order_quantity = max(0, order_quantity)
+
+    if order_quantity <= 0:
+        logging.debug("AUTO 매매: 이번 분할 매수에서 실행할 수량이 없거나, 매수 가능액이 부족합니다.")
+        return {'status': 'forced_trade_handled'}
+
+    # 상태 업데이트는 실제 주문 성공 후 main_cmd에서 처리
+    return {
+        'type': 'BUY',
+        'stock_code': stock_code,
+        'quantity': order_quantity,
+        'price': current_state.get('price', 0),
+        'market': current_state.get('market', "KRX"),
+        'strategy_name': 'FORCED_TRADE_AUTO_BUY',
+        'is_forced_trade': True,
+        'current_price': current_price # 상태 업데이트 시 필요
+    }
+
+def _get_auto_sell_action(current_state, market_data):
+    """AUTO 모드의 매도 단계를 처리하고 매도 action을 결정합니다."""
+    stock_code = current_state['stock_code']
+    holdings_df = market_data.get('holdings_df')
+    price_df = market_data.get('price_df', {}).get(stock_code)
+
+    if current_state.get('bought_quantity', 0) <= 0:
+        logging.warning("AUTO 매매 매도 단계: 매도할 보유 수량이 없어 강제 거래를 종료합니다.")
+        state.save_trade_state({'active': False})
+        return {'status': 'forced_trade_handled'}
+
+    avg_buy_price = current_state.get('avg_buy_price', 0.0)
+    sell_profit_target = current_state.get('sell_profit_target_percent', 0.0)
+    current_price = int(price_df['stck_prpr'].iloc[0])
+
+    if avg_buy_price <= 0:
+        logging.warning("AUTO 매매 매도 단계: 평균 매수 단가가 0이므로 수익률 계산 불가. 매도 보류.")
+        return {'status': 'forced_trade_handled'}
+
+    current_profit_percent = ((current_price - avg_buy_price) / avg_buy_price) * 100
+    logging.debug(f"AUTO 매매 매도 단계: 현재 수익률 {current_profit_percent:.2f}% (목표: {sell_profit_target}%)")
+
+    if current_profit_percent < sell_profit_target:
+        return {'status': 'forced_trade_handled'} # 목표 수익률 미도달
+
+    sell_quantity = _get_stock_sellable_quantity(stock_code, holdings_df)
+    if sell_quantity <= 0:
+        logging.warning("AUTO 매매: 목표 수익률 도달했으나 매도 가능 수량이 없습니다.")
+        return {'status': 'forced_trade_handled'}
+
+    return {
+        'type': 'SELL',
+        'stock_code': stock_code,
+        'quantity': sell_quantity,
+        'price': 0, # 시장가 매도
+        'market': current_state.get('market', "KRX"),
+        'strategy_name': 'FORCED_TRADE_AUTO_SELL',
+        'is_forced_trade': True
+    }
+
+def _get_simple_trade_action(current_state, market_data):
+    """단순 강제 매수/매도 action을 결정합니다."""
+    action_type = current_state['original_trade_type']
+    stock_code = current_state['stock_code']
+    price_df = market_data.get('price_df', {}).get(stock_code)
+
+    order_quantity = 0
+    if action_type == 'SELL':
+        order_quantity = _get_stock_sellable_quantity(stock_code, market_data.get('holdings_df'))
+
+    elif action_type == 'BUY':
+        current_price = int(price_df['stck_prpr'].iloc[0])
+        available_cash = _get_available_buy_cash(market_data.get('balance_df'))
+        order_quantity = _calculate_order_quantity(current_state, current_price, available_cash)
+
+    order_quantity = max(0, order_quantity)
+
+    if order_quantity <= 0:
+        logging.debug("단순 강제 거래: 매매할 수량이 없어 거래를 실행하지 않습니다.")
+        # 모든 분할이 완료되었거나 더 이상 진행할 수 없으면 상태 종료
+        if current_state.get('divisions_done', 0) >= current_state.get('division_count', 1):
+            logging.info(f"단순 강제 거래({action_type}): 모든 분할이 완료되어 거래를 종료합니다.")
+            state.save_trade_state({'active': False})
+
+        return {'status': 'forced_trade_handled'}
+
+    return {
+        'type': action_type,
+        'stock_code': stock_code,
+        'quantity': order_quantity,
+        'price': current_state.get('price', 0),
+        'market': current_state.get('market', "KRX"),
+        'strategy_name': f'FORCED_TRADE_{action_type}',
+        'is_forced_trade': True,
+        'current_price': int(price_df['stck_prpr'].iloc[0]) if price_df is not None and not price_df.empty else 0
+    }
+
+def _process_active_forced_trade(cycle_id, current_state, market_data):
+    """
+    진행 중인 강제 거래 상태에 따라 다음 매매 '결정'을 내리고 action을 반환합니다.
+    실제 주문은 이 함수에서 실행하지 않습니다.
+    """
+    trade_type = current_state.get('original_trade_type')
+    current_phase = current_state.get('current_phase')
+    stock_code = current_state.get('stock_code')
+
+    price_df = market_data.get('price_df', {}).get(stock_code)
     if price_df is None or price_df.empty:
         logging.error(f"강제거래: {stock_code}의 현재가를 가져올 수 없어 거래를 진행할 수 없습니다.")
         return {'status': 'forced_trade_handled'}
-    current_price = int(price_df['stck_prpr'].iloc[0])
 
-    if current_price <= 0:
+    current_price = int(price_df['stck_prpr'].iloc[0])
+    # 매수 시에만 현재가 0 체크
+    if current_price <= 0 and trade_type != 'SELL':
         logging.error(f"강제거래: {stock_code}의 현재가가 0이하여서 수량을 계산할 수 없습니다.")
         return {'status': 'forced_trade_handled'}
 
-    # --- AUTO 모드 BUYING ---
-    if trade_type == 'AUTO' and current_phase == 'BUYING':
-        # 목표 수량 달성 시 매도 단계로 전환 (남은 수량이 없으면)
-        if current_state.get('remaining_quantity', 0) <= 0 and current_state.get('total_quantity', 0) > 0:
-            logging.info("AUTO 매매: 목표 수량을 이미 보유하고 있거나 초과하여 매수 단계를 건너킵니다.")
-            state.set_trade_state_value('current_phase', 'SELLING')
-            return {'status': 'forced_trade_handled'}
-
-        # 주문 수량 계산 로직 (기존 _process_active_forced_trade 로직에서 가져옴)
-        order_quantity = 0
-        if current_state.get('total_quantity', 0) > 0: # 수량 기반 매수 우선
-            rem_qty = current_state.get('remaining_quantity', 0)
-            div_count = current_state.get('division_count', 1)
-            div_done = current_state.get('divisions_done', 0)
-            order_quantity = rem_qty if div_count <= 1 else rem_qty // max(1, (div_count - div_done))
-            if div_done == div_count - 1: order_quantity = rem_qty # 마지막 분할은 남은 수량 전부
-        elif current_state.get('total_amount', 0) > 0: # 금액 기반 매수
-            rem_amt = current_state.get('remaining_amount', 0)
-            div_count = current_state.get('division_count', 1)
-            div_done = current_state.get('divisions_done', 0)
-            order_amount = rem_amt if div_count <= 1 else rem_amt // max(1, (div_count - div_done))
-            if div_done == div_count - 1: order_amount = rem_amt # 마지막 분할은 남은 금액 전부
-
-            available_cash = _get_available_buy_cash(balance_df)
-            if order_amount > available_cash:
-                logging.warning(f"매수 희망 금액({order_amount}원)이 매수 가능액({available_cash}원)을 초과하여 가능액으로 조정합니다.")
-                order_amount = available_cash
-            
-            if current_price > 0:
-                order_quantity = order_amount // current_price
-            else:
-                logging.error("현재가가 0이하여서 수량을 계산할 수 없습니다.")
-                order_quantity = 0
-        
-        order_quantity = max(0, order_quantity) # 음수 방지
-
-        if order_quantity <= 0:
-            logging.debug("AUTO 매매: 이번 분할 매수에서 실행할 수량이 없거나, 매수 가능액이 부족합니다.")
-            return {'status': 'forced_trade_handled'}
-
-        action = {'type': 'BUY', 'stock_code': stock_code, 'quantity': order_quantity, 'price': price, 'market': market, 'strategy_name': 'FORCED_TRADE_AUTO_BUY', 'is_forced_trade': True}
-        
-        trade_successful = trade.order_buy(cycle_id, stock_code=action['stock_code'], quantity=action['quantity'], price=action['price'], market=action['market'])
-        if trade_successful:
-            actual_buy_price = price if price != 0 else current_price # 시장가일 경우 현재가를 추정치로 사용
-            state.update_trade_state_after_buy(current_state, order_quantity, actual_buy_price)
-            return action
-        else:
-            logging.error("AUTO 매수 주문 실패. 다음 사이클을 대기합니다.")
-            return {'status': 'forced_trade_handled'}
-
-    # --- AUTO 모드 SELLING ---
-    elif trade_type == 'AUTO' and current_phase == 'SELLING':
-        if current_state.get('bought_quantity', 0) <= 0:
-            logging.warning("AUTO 매매 매도 단계: 매도할 보유 수량이 없어 강제 거래를 종료합니다.")
-            state.save_trade_state({'active': False}) # 더 이상 진행할 게 없으므로 여기서는 상태 초기화
-            return {'status': 'forced_trade_handled'}
-
-        avg_buy_price = current_state.get('avg_buy_price', 0.0)
-        sell_profit_target = current_state.get('sell_profit_target_percent', 0.0)
-        
-        if avg_buy_price > 0:
-            current_profit_percent = ((current_price - avg_buy_price) / avg_buy_price) * 100
-            logging.debug(f"AUTO 매매 매도 단계: 현재 수익률 {current_profit_percent:.2f}% (목표: {sell_profit_target}%)")
-
-            if current_profit_percent >= sell_profit_target:
-                sell_quantity = _get_stock_sellable_quantity(stock_code, holdings_df)
-                if sell_quantity <= 0:
-                    logging.warning("AUTO 매매: 목표 수익률 도달했으나 매도 가능 수량이 없습니다.")
-                    return {'status': 'forced_trade_handled'}
-
-                action = {'type': 'SELL', 'stock_code': stock_code, 'quantity': sell_quantity, 'price': 0, 'market': market, 'strategy_name': 'FORCED_TRADE_AUTO_SELL', 'is_forced_trade': True}
-                
-                trade_successful = trade.order_sell(cycle_id, stock_code=action['stock_code'], quantity=action['quantity'], price=action['price'], market=action['market'])
-                if trade_successful:
-                    state.reset_state_for_auto_cycle(current_state)
-                    return action
-                else:
-                    logging.error("AUTO 매도 주문 실패. 다음 사이클을 대기합니다.")
-                    return {'status': 'forced_trade_handled'}
-        else:
-            logging.warning("AUTO 매매 매도 단계: 평균 매수 단가가 0이므로 수익률 계산 불가. 매도 보류.")
-        
-        return {'status': 'forced_trade_handled'}
-
-    # --- 단순 BUY/SELL ---
+    # --- AUTO 모드 ---
+    if trade_type == 'AUTO':
+        if current_phase == 'BUYING':
+            return _get_auto_buy_action(current_state, market_data)
+        elif current_phase == 'SELLING':
+            return _get_auto_sell_action(current_state, market_data)
+          
+    # --- 단순 BUY/SELL 모드 ---
     elif trade_type in ['BUY', 'SELL']:
-        action_type = trade_type
-        order_quantity_to_execute = 0 
+        return _get_simple_trade_action(current_state, market_data)
 
-        if action_type == 'SELL':
-            order_quantity_to_execute = _get_stock_sellable_quantity(stock_code, holdings_df)
-        elif action_type == 'BUY':
-            if current_state.get('total_amount', 0) > 0 and current_state.get('total_quantity', 0) == 0:
-                 order_amount = current_state.get('remaining_amount', 0) if current_state.get('division_count', 1) <= 1 else current_state.get('remaining_amount', 0) // max(1, (current_state.get('division_count', 1) - current_state.get('divisions_done', 0)))
-                 if current_state.get('divisions_done', 0) == current_state.get('division_count', 1) - 1: order_amount = current_state.get('remaining_amount', 0)
-                 order_quantity_to_execute = order_amount // current_price if current_price > 0 else 0
-            elif current_state.get('total_quantity', 0) > 0:
-                 order_quantity_to_execute = current_state.get('remaining_quantity', 0) if current_state.get('division_count', 1) <= 1 else current_state.get('remaining_quantity', 0) // max(1, (current_state.get('division_count', 1) - current_state.get('divisions_done', 0)))
-                 if current_state.get('divisions_done', 0) == current_state.get('division_count', 1) - 1: order_quantity_to_execute = current_state.get('remaining_quantity', 0)
-        
-        if order_quantity_to_execute <= 0:
-            logging.debug("단순 강제 거래: 매매할 수량이 없어 거래를 실행하지 않습니다.")
-            # 모든 분할이 완료된 것으로 간주하고 상태 종료 (필요시)
-            if current_state.get('divisions_done', 0) > 0:
-                 logging.info(f"단순 강제 거래({action_type}): 더 이상 실행할 수량이 없어 거래를 종료합니다.")
-                 state.save_trade_state({'active': False})
-            return {'status': 'forced_trade_handled'}
-
-        action = {'type': action_type, 'stock_code': stock_code, 'quantity': order_quantity_to_execute, 'price': price, 'market': market, 'strategy_name': f'FORCED_TRADE_{action_type}', 'is_forced_trade': True}
-
-        trade_successful = False
-        if action_type == 'BUY':
-            trade_successful = trade.order_buy(cycle_id, stock_code=action['stock_code'], quantity=action['quantity'], price=action['price'], market=action['market'])
-        elif action_type == 'SELL':
-            trade_successful = trade.order_sell(cycle_id, stock_code=action['stock_code'], quantity=action['quantity'], price=action['price'], market=action['market'])
-        
-        if trade_successful:
-            logging.info(f"단순 강제 거래 ({action_type}) 주문 성공. 상태 업데이트 진행.")
-            # current_state['divisions_done'] += 1
-            # if current_state['divisions_done'] >= division_count:
-            #     logging.info(f"단순 강제 거래 ({action_type}) 모든 분할 완료. 상태 비활성화.")
-            #     state.save_trade_state({'active': False})
-            # else:
-            #     logging.info(f"단순 강제 거래 ({action_type}) {current_state['divisions_done']}/{division_count} 분할 완료.")
-            #     state.save_trade_state(current_state)
-            
-            # Simple BUY/SELL의 상태 업데이트도 state 모듈의 함수로 캡슐화 필요 (현재는 보류)
-            # 예를 들어, state.update_trade_state_after_simple_trade(...) 같은 함수를 만들 수 있음
-            # 일단은 기존 로직을 비활성화하고, 단순 매매의 상태 관리는 추후 개선
-            logging.warning("단순 강제 거래(BUY/SELL)의 상태 업데이트 로직은 현재 보류 상태입니다.")
-            return action
-        else:
-            logging.error(f"단순 강제 거래 ({action_type}) 주문 실패. 다음 사이클 대기.")
-            return {'status': 'forced_trade_handled'}
-    return None
-
+    logging.warning("알 수 없는 강제 거래 타입(%s) 또는 단계(%s)입니다.", trade_type, current_phase)
+    return None # 처리할 수 없는 타입
 
 def find_action_to_take(cycle_id, config):
     """
-    현재 매매 사이클에서 취할 행동을 결정합니다.
+    현재 매매 사이클에서 취할 행동을 '결정'하고, 사용된 시장 데이터와 함께 반환합니다.
     - 필요한 모든 시장 데이터를 한 번에 조회합니다.
-    - 강제 거래 상태를 확인하고, 있으면 해당 거래를 처리합니다.
-    - 강제 거래가 없으면 일반 매매 규칙을 평가하여 행동을 결정합니다.
+    - 강제 거래, 일반 규칙 순으로 평가하여 가장 먼저 조건에 맞는 action을 반환합니다.
+    - 실제 거래 실행은 하지 않습니다.
     """
     logging.debug("[%s] 매매 행동 결정 시작...", cycle_id)
     
-    # 1. 필요한 모든 데이터 한 번에 조회
-    all_stock_codes = {
-        cond.get('params', {}).get('stock_code')
-        for rule in config.get('rules', [])
-        for cond in rule.get('conditions', [])
-        if cond.get('params', {}).get('stock_code')
-    } | {
-        rule.get('strategy', {}).get('params', {}).get('stock_code')
-        for rule in config.get('rules', [])
-        if rule.get('strategy', {}).get('params', {}).get('stock_code')
-    }
-    all_stock_codes.discard(None)
-    
-    market_data = {'price_df': {}, 'holdings_df': None, 'balance_df': None}
-    
-    for code in all_stock_codes:
-        market_data['price_df'][code] = core_logic.get_price(cycle_id, code)
-        
-    market_data['holdings_df'], market_data['balance_df'] = core_logic.get_balance(cycle_id)
+    active_trade_state = state.load_trade_state()
+    is_forced_trade_active = active_trade_state.get('active', False)
 
-    # 2. 강제 거래 상태 확인 및 처리
-    if state.get_trade_state_value('active'): # state.get_trade_state_value('active')를 사용하여 활성 상태 확인
-        logging.info("[%s] 활성 강제 거래를 처리합니다.", cycle_id)
-        
-        current_state = state.load_trade_state() # 전체 상태를 로드하여 전달
-        
-        # 강제 거래에 필요한 최소한의 데이터만 조회 (config는 더이상 _process_active_forced_trade의 인자가 아님)
-        stock_code = current_state.get('stock_code')
-        market_data = {
-            'price_df': {stock_code: core_logic.get_price(cycle_id, stock_code)} if stock_code else {},
-            'holdings_df': None,
-            'balance_df': None
-        }
+    # 1. 필요한 모든 종목 코드 수집
+    all_stock_codes = set()
+    if is_forced_trade_active:
+        all_stock_codes.add(active_trade_state.get('stock_code'))
+
+    for rule in config.get('rules', []):
+        strategy_stock_code = rule.get('strategy', {}).get('params', {}).get('stock_code')
+        if strategy_stock_code:
+            all_stock_codes.add(strategy_stock_code)
+        for cond in rule.get('conditions', []):
+            cond_stock_code = cond.get('params', {}).get('stock_code')
+            if cond_stock_code:
+                all_stock_codes.add(cond_stock_code)
+    all_stock_codes.discard(None)
+
+    # 2. 모든 데이터 한 번에 조회
+    market_data = {'price_df': {}, 'holdings_df': None, 'balance_df': None}
+    if not all_stock_codes:
+        logging.debug("평가할 종목이 없어 잔고 정보만 조회합니다.")
         market_data['holdings_df'], market_data['balance_df'] = core_logic.get_balance(cycle_id)
+    else:
+        market_data['holdings_df'], market_data['balance_df'] = core_logic.get_balance(cycle_id)
+        for code in all_stock_codes:
+            market_data['price_df'][code] = core_logic.get_price(cycle_id, code)
 
-        action = _process_active_forced_trade(cycle_id, current_state, market_data)
-        return action # 강제 거래 로직의 결과를 바로 반환 (거래 실행 or 대기)
+    # 3. 강제 거래 처리 (우선순위 높음)
+    if is_forced_trade_active:
+        logging.info("[%s] 활성 강제 거래를 평가합니다.", cycle_id)
+        action = _process_active_forced_trade(cycle_id, active_trade_state, market_data)
+        if action: # action이 None이 아니면 반환 (대기 상태 포함)
+            return action, market_data
 
-    # 3. 일반 규칙 처리 (강제 거래가 없을 때만 실행)
+    # 4. 일반 규칙 처리 (강제 거래가 없을 때만 실행)
     logging.debug("[%s] 일반 매매 규칙 평가 중...", cycle_id)
-
-    # 필요한 모든 데이터 한 번에 조회
-    all_stock_codes = {
-        cond.get('params', {}).get('stock_code')
-        for rule in config.get('rules', [])
-        for cond in rule.get('conditions', [])
-        if cond.get('params', {}).get('stock_code')
-    } | {
-        rule.get('strategy', {}).get('params', {}).get('stock_code')
-        for rule in config.get('rules', [])
-        if rule.get('strategy', {}).get('params', {}).get('stock_code')
-    }
-    all_stock_codes.discard(None)
-    
-    market_data = {'price_df': {}, 'holdings_df': None, 'balance_df': None}
-    for code in all_stock_codes:
-        market_data['price_df'][code] = core_logic.get_price(cycle_id, code)
-    market_data['holdings_df'], market_data['balance_df'] = core_logic.get_balance(cycle_id)
-    
     action = _process_rules(cycle_id, config, market_data)
     if action:
-        return action
+        return action, market_data
 
     logging.debug("[%s] 이번 사이클에 취할 매매 행동이 없습니다.", cycle_id)
-    return None
+    return None, market_data
