@@ -94,26 +94,34 @@ def main_loop():
         cycle_id = f"#{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
         thread_local.cycle_id = cycle_id
 
-        logging.info("새로운 사이클 시작...")
         config = _load_config()
         if not config:
             logging.error("설정 파일을 로드할 수 없습니다. 60초 후 재시도합니다.")
             time.sleep(60)
             continue
         
+        sleep_duration = config.get('loop_interval_seconds', 60)
+
+        # 1. 매매 로직 실행 전, 대기 사이클인지 먼저 확인 (로그 생성 안함)
+        if condition.is_wait_cycle(cycle_id, config):
+            thread_local.cycle_id = None
+            time.sleep(sleep_duration)
+            continue # 대기 사이클이면 여기서 바로 다음 루프로 넘어감 (로그 생성 안됨)
+
+        # 2. 대기 사이클이 아니면, 본격적인 로직과 로그 기록 시작
+        logging.debug("새로운 사이클 시작...") # INFO -> DEBUG
+        
         # 기본 조건 체크 (거래 시간 등)
         if not condition.check_basics():
             logging.info("기본 실행 조건(거래 시간 등)을 충족하지 않아 대기합니다.")
-            time.sleep(config.get('loop_interval_seconds', 60))
+            thread_local.cycle_id = None
+            time.sleep(sleep_duration)
             continue
 
-        sleep_duration = config.get('loop_interval_seconds', 60)
-        
-        # 1. 매매 결정 (API 조회 포함)
-        # find_action_to_take은 market_data를 내부적으로 조회하고 action을 결정해서 반환합니다.
+        # 3. 매매 결정 (API 조회 포함)
         action_to_take, market_data = condition.find_action_to_take(cycle_id, config)
 
-        # 2. 결정에 따른 거래 실행 및 상태 업데이트
+        # 4. 결정에 따른 거래 실행 및 상태 업데이트
         if action_to_take:
             action_type = action_to_take.get('type')
             
@@ -145,7 +153,7 @@ def main_loop():
                         balance_df=balance_df
                     )
 
-                # 3. 거래 성공 시 상태 업데이트
+                # 5. 거래 성공 시 상태 업데이트
                 if trade_successful:
                     current_state = state.load_trade_state()
                     if action_to_take.get('is_forced_trade'):
@@ -161,13 +169,10 @@ def main_loop():
                             else: # 단순 강제 매도
                                 state.save_trade_state({'active': False}) # 거래 비활성화
 
-            elif action_to_take.get('status') == 'forced_trade_handled':
-                logging.info("강제 거래 로직에 의해 이번 사이클은 대기합니다.")
-                
         else:
-            logging.info("이번 사이클에서는 실행할 거래가 없습니다.")
+            logging.debug("이번 사이클에서는 실행할 거래가 없습니다.") # INFO -> DEBUG
 
-        logging.info("새로운 사이클을 시작합니다. %s초 후 재시도합니다.\n", sleep_duration)
+        logging.debug("새로운 사이클을 시작합니다. %s초 후 재시도합니다.\n", sleep_duration) # INFO -> DEBUG
         thread_local.cycle_id = None
         time.sleep(sleep_duration)
 

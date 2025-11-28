@@ -272,6 +272,50 @@ def _process_rules(cycle_id, config, market_data):
     
     return None
 
+# --- Wait Cycle Check ---
+def is_wait_cycle(cycle_id, config):
+    """
+    실제 매매 로직을 실행하기 전, 단순히 대기만 해야 하는 사이클인지 가볍게 확인합니다.
+    - AUTO 매매의 매도 단계에서 수익률 미달성 시 대기하는 경우가 주요 대상입니다.
+    - 이 함수는 최소한의 API 호출(get_price)만 수행하며 로그를 남기지 않습니다.
+    """
+    active_trade_state = state.load_trade_state()
+    is_forced_trade_active = active_trade_state.get('active', False)
+
+    if not is_forced_trade_active:
+        return False
+
+    strategy_type = active_trade_state.get('original_trade_type')
+    current_phase = active_trade_state.get('current_phase')
+
+    # AUTO 전략의 SELLING 단계일 때만 대기 여부 체크
+    if strategy_type == 'AUTO' and current_phase == 'SELLING':
+        stock_code = active_trade_state.get('stock_code')
+        
+        # 로그를 남기지 않고 현재가만 가볍게 조회
+        price_df = core_logic.get_price(cycle_id, stock_code)
+        
+        if price_df is None or price_df.empty:
+            # 가격 조회가 안되면, 대기 여부 판단 불가 -> 일단 대기 사이클 아님으로 처리하여
+            # 이후 로직에서 오류 로그를 남기도록 유도 (혹은 다른 방식으로 처리)
+            return False 
+
+        current_price = int(price_df['stck_prpr'].iloc[0])
+        avg_buy_price = active_trade_state.get('avg_buy_price', 0.0)
+        sell_profit_target = active_trade_state.get('sell_profit_target_percent', 0.0)
+
+        if avg_buy_price > 0:
+            current_profit_percent = ((current_price - avg_buy_price) / avg_buy_price) * 100
+            if current_profit_percent < sell_profit_target:
+                return True # 목표 수익률 미달성이므로 대기 사이클 맞음
+
+    # 다른 전략에 대한 대기 조건 추가 예정
+    # elif strategy_type == 'NEW_STRATEGY_X':
+    #     # NEW_STRATEGY_X의 대기 조건 로직
+    #     pass
+
+    return False # 그 외 모든 경우는 대기 사이클이 아님
+
 # --- Process Active Forced Trade (Refactored) ---
 def _calculate_order_quantity(current_state, current_price, available_cash):
     """
